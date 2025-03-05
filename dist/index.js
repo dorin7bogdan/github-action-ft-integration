@@ -83204,6 +83204,8 @@ const generateRootExecutorEvent = (event, executorName, executorCiId, buildCiId,
 exports.generateRootExecutorEvent = generateRootExecutorEvent;
 const getEventType = (event) => {
     switch (event) {
+        case 'workflow_run':
+            return "workflow_run" /* ActionsEventType.WORKFLOW_RUN */;
         case 'requested':
             return "requested" /* ActionsEventType.WORKFLOW_QUEUED */;
         case 'in_progress':

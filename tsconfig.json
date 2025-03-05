@@ -9,7 +9,7 @@
     "strict": true,
     "skipLibCheck": true, /* Enable all strict type-checking options. */
     "types": [ "node", "jest" ],
-    "sourceMap": true, /* Create source map files for emitted JavaScript files. */
+    "sourceMap": false /* For debug: create source map files for emitted JavaScript files. */
   },
   "include": [ "src" ],
   "exclude": [ "node_modules", "**/*.test.*", "**/__mocks__/*", "**/__tests__/*", "**/test/*" ]
