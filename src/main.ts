@@ -30,9 +30,9 @@
 import { setFailed } from '@actions/core';
 import { context } from '@actions/github';
 import { handleEvent } from './eventHandler';
-import core from '@actions/core';
+import * as core from '@actions/core';
 
-(async () => {
+async function run () {
   try {
 
     core.info('BEGIN main.ts ...');
@@ -54,4 +54,6 @@ import core from '@actions/core';
   } finally {
     core.info('END main.ts ...');
   }
-})();
+}
+
+run();

@@ -41,7 +41,7 @@ import {
   sendExecutorStartEvent
 } from './service/executorService';
 import CiParameter from './dto/octane/events/CiParameter';
-import core from '@actions/core';
+import * as core from '@actions/core';
 
 const LOGGER: Logger = new Logger('eventHandler');
 

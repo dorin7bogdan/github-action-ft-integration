@@ -82892,6 +82892,39 @@ exports.setConfig = setConfig;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -82901,7 +82934,7 @@ const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
 const config_1 = __nccwpck_require__(81122);
 const ciEventsService_1 = __nccwpck_require__(80039);
 const logger_1 = __nccwpck_require__(7893);
-const core_1 = __importDefault(__nccwpck_require__(37484));
+const core = __importStar(__nccwpck_require__(37484));
 const LOGGER = new logger_1.Logger('eventHandler');
 const handleEvent = async (event) => {
     const eventType = (0, ciEventsService_1.getEventType)(event);
@@ -82914,24 +82947,24 @@ const handleEvent = async (event) => {
     if (!repositoryOwner || !repositoryName) {
         throw new Error('Event should contain repository data!');
     }
-    core_1.default.info('BEGIN handleEvent ...');
+    core.info('BEGIN handleEvent ...');
     switch (eventType) {
         case "requested" /* ActionsEventType.WORKFLOW_QUEUED */:
-            core_1.default.info('WORKFLOW_QUEUED...');
+            core.info('WORKFLOW_QUEUED...');
             break;
         case "in_progress" /* ActionsEventType.WORKFLOW_STARTED */:
-            core_1.default.info('WORKFLOW_STARTED...');
+            core.info('WORKFLOW_STARTED...');
             break;
         case "completed" /* ActionsEventType.WORKFLOW_FINISHED */:
-            core_1.default.info('WORKFLOW_FINISHED.');
+            core.info('WORKFLOW_FINISHED.');
             break;
         case "unknown" /* ActionsEventType.UNKNOWN_EVENT */:
             break;
         default:
-            core_1.default.info(`default -> eventType = ${eventType}`);
+            core.info(`default -> eventType = ${eventType}`);
             break;
     }
-    core_1.default.info('END handleEvent ...');
+    core.info('END handleEvent ...');
 };
 exports.handleEvent = handleEvent;
 const getCiServerInstanceId = (repositoryOwner, useOldCiServer) => {
@@ -82996,17 +83029,47 @@ const hasExecutorParameters = (configParameters) => {
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(37484);
 const github_1 = __nccwpck_require__(93228);
 const eventHandler_1 = __nccwpck_require__(37751);
-const core_2 = __importDefault(__nccwpck_require__(37484));
-(async () => {
+const core = __importStar(__nccwpck_require__(37484));
+async function run() {
     try {
-        core_2.default.info('BEGIN main.ts ...');
+        core.info('BEGIN main.ts ...');
         const event = github_1.context.payload;
         await (0, eventHandler_1.handleEvent)(event);
     }
@@ -83026,9 +83089,10 @@ const core_2 = __importDefault(__nccwpck_require__(37484));
         (0, core_1.setFailed)(msg);
     }
     finally {
-        core_2.default.info('END main.ts ...');
+        core.info('END main.ts ...');
     }
-})();
+}
+run();
 
 
 /***/ }),
