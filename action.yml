@@ -22,7 +22,7 @@ inputs:
   serverBaseUrl:
     description: 'URL of the organization/repository in GitHub'
     required: true
-  testingFramework:
+  testingTool:
     description: 'Testing framework to use for the test runner'
     required: false
   logLevel:

@@ -4,8 +4,7 @@
   "description": "A custom action which facilitates the connection between GitHub actions and OpenText SDP / SDM.",
   "main": "src/main.ts",
   "scripts": {
-    "test": "jest",
-    "test-integration": "jest --testMatch=\"**/*.integration.*\"",
+    "test": "ts-node src/main.ts",
     "build": "ncc build --license licenses.txt"
   },
   "keywords": [

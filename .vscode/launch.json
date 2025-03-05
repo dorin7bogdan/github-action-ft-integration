@@ -1,38 +1,25 @@
+//            "args": ["https://qa8.almoctane.com", "128004", "2001", "dorin_m4lyg1qmv3vr3fondme6l85k2", "$5510021921520122064112V", "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", "https://github.com/dorin7bogdan/ufto-tests"],
+
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "Debug Jest Tests",
-            "program": "${workspaceFolder}/node_modules/jest/bin/jest",
-            "args": ["--runInBand"],
-            "console": "integratedTerminal",
-            "internalConsoleOptions": "neverOpen",
-            "outFiles": [
-                "${workspaceFolder}/dist/**/*.js"
-            ],
-            "skipFiles": ["<node_internals>/**"]
-        },        
-        {
-            "type": "node",
-            "request": "launch",
-            "name": "Debug Action",
-            "skipFiles": [
-                "<node_internals>/**"
-            ],
-            "program": "${workspaceFolder}\\src\\main.ts",
-            "preLaunchTask": "npm: build",
-            "outFiles": [
-                "${workspaceFolder}/dist/**/*.js"
-            ],
-            "runtimeArgs": [
-                "--no-deprecation-warning",
-                "--inspect-brk"
-            ]            
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "Debug GitHub Action",
+        "skipFiles": [ "<node_internals>/**" ],
+        "runtimeExecutable": "ts-node",
+        "args": [ "${workspaceFolder}/src/main.ts" ],
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "INPUT_OCTANEURL": "https://qa.com",
+          "INPUT_OCTANESHAREDSPACE": "128",
+          "INPUT_OCTANEWORKSPACE": "20",
+          "INPUT_OCTANECLIENTID": "mock-client-id",
+          "INPUT_OCTANECLIENTSECRET": "mock-client-secret",
+          "INPUT_GITHUBTOKEN": "mock-github-token",
+          "INPUT_SERVERBASEURL": "https://github.com/dorin7bogdan/ufto-tests.git"
         }
+      }
     ]
 }

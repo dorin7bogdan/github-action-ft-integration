@@ -82937,6 +82937,13 @@ const logger_1 = __nccwpck_require__(7893);
 const core = __importStar(__nccwpck_require__(37484));
 const LOGGER = new logger_1.Logger('eventHandler');
 const handleEvent = async (event) => {
+    core.info('BEGIN handleEvent ...');
+    if (event) {
+        core.info(`event = ${JSON.stringify(event)}`);
+    }
+    else {
+        core.info('event is null or undefined');
+    }
     const eventType = (0, ciEventsService_1.getEventType)(event);
     const repositoryOwner = event.repository?.owner.login;
     const repositoryName = event.repository?.name;
@@ -82947,7 +82954,6 @@ const handleEvent = async (event) => {
     if (!repositoryOwner || !repositoryName) {
         throw new Error('Event should contain repository data!');
     }
-    core.info('BEGIN handleEvent ...');
     switch (eventType) {
         case "requested" /* ActionsEventType.WORKFLOW_QUEUED */:
             core.info('WORKFLOW_QUEUED...');

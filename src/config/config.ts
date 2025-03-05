@@ -37,9 +37,7 @@ interface Config {
   octaneClientSecret: string;
   githubToken: string;
   serverBaseUrl: string;
-  testingFramework: string;
-  unitTestResultsGlobPattern: string;
-  gherkinTestResultsGlobPattern: string;
+  testingTool: string;
   logLevel: number;
 }
 
@@ -55,9 +53,7 @@ try {
     octaneClientSecret: getInput('octaneClientSecret'),
     githubToken: getInput('githubToken'),
     serverBaseUrl: getInput('serverBaseUrl'),
-    testingFramework: getInput('testingFramework'),
-    unitTestResultsGlobPattern: getInput('unitTestResultsGlobPattern'),
-    gherkinTestResultsGlobPattern: getInput('gherkinTestResultsGlobPattern'),
+    testingTool: getInput('testingFramework'),
     logLevel: Number.parseInt(getInput('logLevel'))
   };
 } catch (error: any) {

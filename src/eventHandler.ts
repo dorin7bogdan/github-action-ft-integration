@@ -46,6 +46,13 @@ import * as core from '@actions/core';
 const LOGGER: Logger = new Logger('eventHandler');
 
 export const handleEvent = async (event: ActionsEvent): Promise<void> => {
+  core.info('BEGIN handleEvent ...');
+  if (event) {
+    core.info(`event = ${JSON.stringify(event)}`);
+  } else {
+    core.info('event is null or undefined');
+  }
+
   const eventType = getEventType(event);
   const repositoryOwner = event.repository?.owner.login;
   const repositoryName = event.repository?.name;
@@ -57,8 +64,6 @@ export const handleEvent = async (event: ActionsEvent): Promise<void> => {
   if (!repositoryOwner || !repositoryName) {
     throw new Error('Event should contain repository data!');
   }
-
-  core.info('BEGIN handleEvent ...');
 
   switch (eventType) {
     case ActionsEventType.WORKFLOW_QUEUED:
