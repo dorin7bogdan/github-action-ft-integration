@@ -33,6 +33,7 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
+import { context } from '@actions/github';
 import {
   buildExecutorCiId,
   buildExecutorName,
@@ -45,8 +46,12 @@ import * as core from '@actions/core';
 
 const LOGGER: Logger = new Logger('eventHandler');
 
-export const handleEvent = async (event: ActionsEvent, eventName: string | null | undefined): Promise<void> => {
+export const handleCurrentEvent = async (): Promise<void> => {
   core.info('BEGIN handleEvent ...');
+
+  const event: ActionsEvent = context.payload;
+  const eventName = context.eventName;
+
   if (event) {
     core.info(`event = ${JSON.stringify(event)}`);
   } else {
@@ -60,16 +65,20 @@ export const handleEvent = async (event: ActionsEvent, eventName: string | null 
     return;
   }
 
-  const repositoryOwner = event.repository?.owner.login;
-  const repositoryName = event.repository?.name;
+  const repoOwner = event.repository?.owner.login;
+  const repoName = event.repository?.name;
   const workflowFilePath = event.workflow?.path;
   const workflowName = event.workflow?.name;
   const workflowRunId = event.workflow_run?.id;
   const branchName = event.workflow_run?.head_branch;
 
-  if (!repositoryOwner || !repositoryName) {
+  if (!repoOwner || !repoName) {
     throw new Error('Event should contain repository data!');
   }
+
+  const serverUrl = context.serverUrl;
+  const repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`;
+  core.info(`Current repository URL: ${repoUrl}`);
 
   switch (eventType) {
     case ActionsEventType.WORKFLOW_QUEUED:

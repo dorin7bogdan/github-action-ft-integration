@@ -28,8 +28,7 @@
  */
 
 import { setFailed } from '@actions/core';
-import { context } from '@actions/github';
-import { handleEvent } from './eventHandler';
+import { handleCurrentEvent } from './eventHandler';
 import * as core from '@actions/core';
 
 async function run () {
@@ -37,8 +36,7 @@ async function run () {
 
     core.info('BEGIN main.ts ...');
 
-    const event = context.payload;
-    await handleEvent(event, context.eventName);
+    await handleCurrentEvent();
   } catch (error: any) {
     let msg;
     if (error.response) {

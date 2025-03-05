@@ -174,6 +174,8 @@ const getEventType = (event: string | null | undefined): ActionsEventType => {
   switch (event) {
     case 'workflow_dispatch':
       return ActionsEventType.WORKFLOW_RUN; 
+    case 'push':
+      return ActionsEventType.PUSH; 
     case 'requested':
       return ActionsEventType.WORKFLOW_QUEUED;
     case 'in_progress':

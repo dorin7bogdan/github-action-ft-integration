@@ -82927,15 +82927,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.handleEvent = void 0;
+exports.handleCurrentEvent = void 0;
 const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
 const config_1 = __nccwpck_require__(81122);
 const ciEventsService_1 = __nccwpck_require__(80039);
 const logger_1 = __nccwpck_require__(7893);
+const github_1 = __nccwpck_require__(93228);
 const core = __importStar(__nccwpck_require__(37484));
 const LOGGER = new logger_1.Logger('eventHandler');
-const handleEvent = async (event, eventName) => {
+const handleCurrentEvent = async () => {
     core.info('BEGIN handleEvent ...');
+    const event = github_1.context.payload;
+    const eventName = github_1.context.eventName;
     if (event) {
         core.info(`event = ${JSON.stringify(event)}`);
     }
@@ -82948,15 +82951,18 @@ const handleEvent = async (event, eventName) => {
         core.info('Unknown event type');
         return;
     }
-    const repositoryOwner = event.repository?.owner.login;
-    const repositoryName = event.repository?.name;
+    const repoOwner = event.repository?.owner.login;
+    const repoName = event.repository?.name;
     const workflowFilePath = event.workflow?.path;
     const workflowName = event.workflow?.name;
     const workflowRunId = event.workflow_run?.id;
     const branchName = event.workflow_run?.head_branch;
-    if (!repositoryOwner || !repositoryName) {
+    if (!repoOwner || !repoName) {
         throw new Error('Event should contain repository data!');
     }
+    const serverUrl = github_1.context.serverUrl;
+    const repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`;
+    core.info(`Current repository URL: ${repoUrl}`);
     switch (eventType) {
         case "requested" /* ActionsEventType.WORKFLOW_QUEUED */:
             core.info('WORKFLOW_QUEUED...');
@@ -82973,7 +82979,7 @@ const handleEvent = async (event, eventName) => {
     }
     core.info('END handleEvent ...');
 };
-exports.handleEvent = handleEvent;
+exports.handleCurrentEvent = handleCurrentEvent;
 const getCiServerInstanceId = (repositoryOwner, useOldCiServer) => {
     if (useOldCiServer) {
         return `GHA/${(0, config_1.getConfig)().octaneSharedSpace}`;
@@ -83071,14 +83077,12 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(37484);
-const github_1 = __nccwpck_require__(93228);
 const eventHandler_1 = __nccwpck_require__(37751);
 const core = __importStar(__nccwpck_require__(37484));
 async function run() {
     try {
         core.info('BEGIN main.ts ...');
-        const event = github_1.context.payload;
-        await (0, eventHandler_1.handleEvent)(event, github_1.context.eventName);
+        await (0, eventHandler_1.handleCurrentEvent)();
     }
     catch (error) {
         let msg;
@@ -83206,6 +83210,8 @@ const getEventType = (event) => {
     switch (event) {
         case 'workflow_dispatch':
             return "workflow_run" /* ActionsEventType.WORKFLOW_RUN */;
+        case 'push':
+            return "push" /* ActionsEventType.PUSH */;
         case 'requested':
             return "requested" /* ActionsEventType.WORKFLOW_QUEUED */;
         case 'in_progress':

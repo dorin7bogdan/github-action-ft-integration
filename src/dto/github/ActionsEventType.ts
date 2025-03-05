@@ -28,6 +28,7 @@
  */
 
 const enum ActionsEventType {
+  PUSH = 'push',
   WORKFLOW_QUEUED = 'requested',
   WORKFLOW_STARTED = 'in_progress',
   WORKFLOW_FINISHED = 'completed',
