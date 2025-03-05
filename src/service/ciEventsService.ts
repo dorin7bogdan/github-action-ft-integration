@@ -170,8 +170,8 @@ const generateRootExecutorEvent = (
   return executorEvent;
 };
 
-const getEventType = (event: ActionsEvent): ActionsEventType => {
-  switch (event.action) {
+const getEventType = (event: string | null | undefined): ActionsEventType => {
+  switch (event) {
     case 'requested':
       return ActionsEventType.WORKFLOW_QUEUED;
     case 'in_progress':

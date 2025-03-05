@@ -82832,9 +82832,7 @@ try {
         octaneClientSecret: (0, core_1.getInput)('octaneClientSecret'),
         githubToken: (0, core_1.getInput)('githubToken'),
         serverBaseUrl: (0, core_1.getInput)('serverBaseUrl'),
-        testingFramework: (0, core_1.getInput)('testingFramework'),
-        unitTestResultsGlobPattern: (0, core_1.getInput)('unitTestResultsGlobPattern'),
-        gherkinTestResultsGlobPattern: (0, core_1.getInput)('gherkinTestResultsGlobPattern'),
+        testingTool: (0, core_1.getInput)('testingFramework'),
         logLevel: Number.parseInt((0, core_1.getInput)('logLevel'))
     };
 }
@@ -82936,7 +82934,7 @@ const ciEventsService_1 = __nccwpck_require__(80039);
 const logger_1 = __nccwpck_require__(7893);
 const core = __importStar(__nccwpck_require__(37484));
 const LOGGER = new logger_1.Logger('eventHandler');
-const handleEvent = async (event) => {
+const handleEvent = async (event, eventName) => {
     core.info('BEGIN handleEvent ...');
     if (event) {
         core.info(`event = ${JSON.stringify(event)}`);
@@ -82944,7 +82942,12 @@ const handleEvent = async (event) => {
     else {
         core.info('event is null or undefined');
     }
-    const eventType = (0, ciEventsService_1.getEventType)(event);
+    core.info(`eventType = ${event?.action || eventName}`);
+    const eventType = (0, ciEventsService_1.getEventType)(event?.action || eventName);
+    if (eventType === "unknown" /* ActionsEventType.UNKNOWN_EVENT */) {
+        core.info('Unknown event type');
+        return;
+    }
     const repositoryOwner = event.repository?.owner.login;
     const repositoryName = event.repository?.name;
     const workflowFilePath = event.workflow?.path;
@@ -82963,8 +82966,6 @@ const handleEvent = async (event) => {
             break;
         case "completed" /* ActionsEventType.WORKFLOW_FINISHED */:
             core.info('WORKFLOW_FINISHED.');
-            break;
-        case "unknown" /* ActionsEventType.UNKNOWN_EVENT */:
             break;
         default:
             core.info(`default -> eventType = ${eventType}`);
@@ -83077,7 +83078,7 @@ async function run() {
     try {
         core.info('BEGIN main.ts ...');
         const event = github_1.context.payload;
-        await (0, eventHandler_1.handleEvent)(event);
+        await (0, eventHandler_1.handleEvent)(event, github_1.context.eventName);
     }
     catch (error) {
         let msg;
@@ -83202,7 +83203,7 @@ const generateRootExecutorEvent = (event, executorName, executorCiId, buildCiId,
 };
 exports.generateRootExecutorEvent = generateRootExecutorEvent;
 const getEventType = (event) => {
-    switch (event.action) {
+    switch (event) {
         case 'requested':
             return "requested" /* ActionsEventType.WORKFLOW_QUEUED */;
         case 'in_progress':

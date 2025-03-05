@@ -45,7 +45,7 @@ import * as core from '@actions/core';
 
 const LOGGER: Logger = new Logger('eventHandler');
 
-export const handleEvent = async (event: ActionsEvent): Promise<void> => {
+export const handleEvent = async (event: ActionsEvent, eventName: string | null | undefined): Promise<void> => {
   core.info('BEGIN handleEvent ...');
   if (event) {
     core.info(`event = ${JSON.stringify(event)}`);
@@ -53,7 +53,13 @@ export const handleEvent = async (event: ActionsEvent): Promise<void> => {
     core.info('event is null or undefined');
   }
 
-  const eventType = getEventType(event);
+  core.info(`eventType = ${event?.action || eventName}`);
+  const eventType = getEventType(event?.action || eventName);
+  if (eventType === ActionsEventType.UNKNOWN_EVENT) {
+    core.info('Unknown event type');
+    return;
+  }
+
   const repositoryOwner = event.repository?.owner.login;
   const repositoryName = event.repository?.name;
   const workflowFilePath = event.workflow?.path;
@@ -74,8 +80,6 @@ export const handleEvent = async (event: ActionsEvent): Promise<void> => {
       break;
     case ActionsEventType.WORKFLOW_FINISHED:
       core.info('WORKFLOW_FINISHED.');
-      break;
-    case ActionsEventType.UNKNOWN_EVENT:
       break;
     default:
       core.info(`default -> eventType = ${eventType}`);

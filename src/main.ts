@@ -38,7 +38,7 @@ async function run () {
     core.info('BEGIN main.ts ...');
 
     const event = context.payload;
-    await handleEvent(event);
+    await handleEvent(event, context.eventName);
   } catch (error: any) {
     let msg;
     if (error.response) {
