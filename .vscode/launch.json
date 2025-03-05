@@ -12,6 +12,7 @@
         "args": [ "${workspaceFolder}/src/main.ts" ],
         "cwd": "${workspaceFolder}",
         "env": {
+          "GITHUB_EVENT_NAME": "workflow_dispatch", // Simulate manual trigger
           "INPUT_OCTANEURL": "https://qa.com",
           "INPUT_OCTANESHAREDSPACE": "128",
           "INPUT_OCTANEWORKSPACE": "20",

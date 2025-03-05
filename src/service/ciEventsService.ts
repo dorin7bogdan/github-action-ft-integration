@@ -172,7 +172,7 @@ const generateRootExecutorEvent = (
 
 const getEventType = (event: string | null | undefined): ActionsEventType => {
   switch (event) {
-    case 'workflow_run':
+    case 'workflow_dispatch':
       return ActionsEventType.WORKFLOW_RUN; 
     case 'requested':
       return ActionsEventType.WORKFLOW_QUEUED;
