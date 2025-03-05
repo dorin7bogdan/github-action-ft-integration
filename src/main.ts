@@ -30,9 +30,13 @@
 import { setFailed } from '@actions/core';
 import { context } from '@actions/github';
 import { handleEvent } from './eventHandler';
+import core from '@actions/core';
 
 (async () => {
   try {
+
+    core.info('BEGIN main.ts ...');
+
     const event = context.payload;
     await handleEvent(event);
   } catch (error: any) {
@@ -47,5 +51,7 @@ import { handleEvent } from './eventHandler';
       msg = error.message;
     }
     setFailed(msg);
+  } finally {
+    core.info('END main.ts ...');
   }
 })();

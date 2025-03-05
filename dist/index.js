@@ -82914,6 +82914,7 @@ const handleEvent = async (event) => {
     if (!repositoryOwner || !repositoryName) {
         throw new Error('Event should contain repository data!');
     }
+    core_1.default.info('BEGIN handleEvent ...');
     switch (eventType) {
         case "requested" /* ActionsEventType.WORKFLOW_QUEUED */:
             core_1.default.info('WORKFLOW_QUEUED...');
@@ -82930,6 +82931,7 @@ const handleEvent = async (event) => {
             core_1.default.info(`default -> eventType = ${eventType}`);
             break;
     }
+    core_1.default.info('END handleEvent ...');
 };
 exports.handleEvent = handleEvent;
 const getCiServerInstanceId = (repositoryOwner, useOldCiServer) => {
@@ -82957,6 +82959,76 @@ const hasExecutorParameters = (configParameters) => {
     const foundNames = new Set(configParameters.map(param => param.name));
     return requiredParameters.every(name => foundNames.has(name));
 };
+
+
+/***/ }),
+
+/***/ 41730:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+/*
+ * Copyright 2016-2025 Open Text.
+ *
+ * The only warranties for products and services of Open Text and
+ * its affiliates and licensors (“Open Text”) are as may be set forth
+ * in the express warranty statements accompanying such products and services.
+ * Nothing herein should be construed as constituting an additional warranty.
+ * Open Text shall not be liable for technical or editorial errors or
+ * omissions contained herein. The information contained herein is subject
+ * to change without notice.
+ *
+ * Except as specifically indicated otherwise, this document contains
+ * confidential information and a valid license is required for possession,
+ * use or copying. If this work is provided to the U.S. Government,
+ * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
+ * Computer Software Documentation, and Technical Data for Commercial Items are
+ * licensed to the U.S. Government under vendor's standard commercial license.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const core_1 = __nccwpck_require__(37484);
+const github_1 = __nccwpck_require__(93228);
+const eventHandler_1 = __nccwpck_require__(37751);
+const core_2 = __importDefault(__nccwpck_require__(37484));
+(async () => {
+    try {
+        core_2.default.info('BEGIN main.ts ...');
+        const event = github_1.context.payload;
+        await (0, eventHandler_1.handleEvent)(event);
+    }
+    catch (error) {
+        let msg;
+        if (error.response) {
+            if (error.response.config) {
+                msg = `${error.response.status} - ${error.response.statusText}\n url: ${error.response.config.url} - ${error.response.config.method}\n${error.response.data.description_translated}`;
+            }
+            else {
+                msg = JSON.stringify(error.response);
+            }
+        }
+        else {
+            msg = error.message;
+        }
+        (0, core_1.setFailed)(msg);
+    }
+    finally {
+        core_2.default.info('END main.ts ...');
+    }
+})();
 
 
 /***/ }),
@@ -90347,68 +90419,12 @@ module.exports = /*#__PURE__*/JSON.parse('{"100":"Continue","101":"Switching Pro
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
 /******/ 	
 /************************************************************************/
-var __webpack_exports__ = {};
-// This entry need to be wrapped in an IIFE because it need to be in strict mode.
-(() => {
-"use strict";
-var exports = __webpack_exports__;
-
-/*
- * Copyright 2016-2025 Open Text.
- *
- * The only warranties for products and services of Open Text and
- * its affiliates and licensors (“Open Text”) are as may be set forth
- * in the express warranty statements accompanying such products and services.
- * Nothing herein should be construed as constituting an additional warranty.
- * Open Text shall not be liable for technical or editorial errors or
- * omissions contained herein. The information contained herein is subject
- * to change without notice.
- *
- * Except as specifically indicated otherwise, this document contains
- * confidential information and a valid license is required for possession,
- * use or copying. If this work is provided to the U.S. Government,
- * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
- * Computer Software Documentation, and Technical Data for Commercial Items are
- * licensed to the U.S. Government under vendor's standard commercial license.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *   http://www.apache.org/licenses/LICENSE-2.0
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-const core_1 = __nccwpck_require__(37484);
-const github_1 = __nccwpck_require__(93228);
-const eventHandler_1 = __nccwpck_require__(37751);
-(async () => {
-    try {
-        const event = github_1.context.payload;
-        await (0, eventHandler_1.handleEvent)(event);
-    }
-    catch (error) {
-        let msg;
-        if (error.response) {
-            if (error.response.config) {
-                msg = `${error.response.status} - ${error.response.statusText}\n url: ${error.response.config.url} - ${error.response.config.method}\n${error.response.data.description_translated}`;
-            }
-            else {
-                msg = JSON.stringify(error.response);
-            }
-        }
-        else {
-            msg = error.message;
-        }
-        (0, core_1.setFailed)(msg);
-    }
-})();
-
-})();
-
-module.exports = __webpack_exports__;
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __nccwpck_require__(41730);
+/******/ 	module.exports = __webpack_exports__;
+/******/ 	
 /******/ })()
 ;

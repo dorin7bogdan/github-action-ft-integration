@@ -58,6 +58,8 @@ export const handleEvent = async (event: ActionsEvent): Promise<void> => {
     throw new Error('Event should contain repository data!');
   }
 
+  core.info('BEGIN handleEvent ...');
+
   switch (eventType) {
     case ActionsEventType.WORKFLOW_QUEUED:
       core.info('WORKFLOW_QUEUED...');
@@ -74,6 +76,9 @@ export const handleEvent = async (event: ActionsEvent): Promise<void> => {
       core.info(`default -> eventType = ${eventType}`);
       break;
   }
+
+  core.info('END handleEvent ...');
+
 };
 
 const getCiServerInstanceId = (
