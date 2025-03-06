@@ -21,7 +21,7 @@ inputs:
     required: true
   serverBaseUrl:
     description: 'URL of the organization/repository in GitHub'
-    required: true
+    required: false
   testingTool:
     description: 'Testing framework to use for the test runner'
     required: false

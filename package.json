@@ -33,6 +33,7 @@
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@actions/github": "^6.0.0",
+    "@actions/exec": "^1.1.1",
     "@microfocus/alm-octane-js-rest-sdk": "^25.1.0",
     "adm-zip": "^0.5.16",
     "fs-extra": "^11.3.0",

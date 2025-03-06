@@ -82934,6 +82934,9 @@ const ciEventsService_1 = __nccwpck_require__(80039);
 const logger_1 = __nccwpck_require__(7893);
 const github_1 = __nccwpck_require__(93228);
 const core = __importStar(__nccwpck_require__(37484));
+const exec = __importStar(__nccwpck_require__(95236));
+const fs = __importStar(__nccwpck_require__(79896));
+const path = __importStar(__nccwpck_require__(16928));
 const LOGGER = new logger_1.Logger('eventHandler');
 const handleCurrentEvent = async () => {
     core.info('BEGIN handleEvent ...');
@@ -82964,10 +82967,10 @@ const handleCurrentEvent = async () => {
     const repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`;
     core.info(`Current repository URL: ${repoUrl}`);
     switch (eventType) {
-        case "requested" /* ActionsEventType.WORKFLOW_QUEUED */:
-            core.info('WORKFLOW_QUEUED...');
+        case "workflow_run" /* ActionsEventType.WORKFLOW_RUN */:
+            await startFullScanning(repoUrl);
             break;
-        case "in_progress" /* ActionsEventType.WORKFLOW_STARTED */:
+        case "push" /* ActionsEventType.PUSH */:
             core.info('WORKFLOW_STARTED...');
             break;
         case "completed" /* ActionsEventType.WORKFLOW_FINISHED */:
@@ -83005,6 +83008,45 @@ const hasExecutorParameters = (configParameters) => {
     const foundNames = new Set(configParameters.map(param => param.name));
     return requiredParameters.every(name => foundNames.has(name));
 };
+async function startFullScanning(repoUrl) {
+    if (!repoUrl || repoUrl?.trim() === '') {
+        throw new Error('Repository URL is required!');
+    }
+    const repoDir = await checkoutRepo();
+}
+async function checkoutRepo() {
+    const token = core.getInput('github-token', { required: true });
+    const { owner, repo } = github_1.context.repo;
+    const serverUrl = github_1.context.serverUrl;
+    const repoDir = path.join(process.cwd(), repo);
+    const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+    if (fs.existsSync(path.join(repoDir, '.git'))) {
+        core.info(`Repository already checked out at ${repoDir}. Performing git pull...`);
+        await exec.exec('git', ['-C', repoDir, 'pull'], {
+            env: {
+                ...process.env,
+                GITHUB_TOKEN: token,
+            },
+        });
+    }
+    else {
+        core.info(`Checking out repository: ${repoUrl}`);
+        await exec.exec('git', ['clone', repoUrl, repoDir], {
+            env: {
+                ...process.env,
+                GITHUB_TOKEN: token,
+            },
+        });
+        await exec.exec('git', ['-C', repoDir, 'checkout', github_1.context.ref], {
+            env: {
+                ...process.env,
+                GITHUB_TOKEN: token,
+            },
+        });
+        core.info('Repository checked out successfully.');
+    }
+    return repoDir;
+}
 
 
 /***/ }),

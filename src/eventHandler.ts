@@ -43,6 +43,9 @@ import {
 } from './service/executorService';
 import CiParameter from './dto/octane/events/CiParameter';
 import * as core from '@actions/core';
+import * as exec from '@actions/exec';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const LOGGER: Logger = new Logger('eventHandler');
 
@@ -81,10 +84,10 @@ export const handleCurrentEvent = async (): Promise<void> => {
   core.info(`Current repository URL: ${repoUrl}`);
 
   switch (eventType) {
-    case ActionsEventType.WORKFLOW_QUEUED:
-      core.info('WORKFLOW_QUEUED...');
+    case ActionsEventType.WORKFLOW_RUN:
+      await startFullScanning(repoUrl);
       break;
-    case ActionsEventType.WORKFLOW_STARTED:
+    case ActionsEventType.PUSH:
       core.info('WORKFLOW_STARTED...');
       break;
     case ActionsEventType.WORKFLOW_FINISHED:
@@ -136,3 +139,45 @@ const hasExecutorParameters = (
 
   return requiredParameters.every(name => foundNames.has(name));
 };
+
+async function startFullScanning (repoUrl: string | undefined): Promise<void> {
+  if (!repoUrl || repoUrl?.trim() === '') {
+    throw new Error('Repository URL is required!');
+  }
+  const repoDir = await checkoutRepo();
+}
+
+async function checkoutRepo(): Promise<string> {
+  const token = core.getInput('github-token', { required: true });
+  const { owner, repo } = context.repo;
+  const serverUrl = context.serverUrl;
+
+  const repoDir = path.join(process.cwd(), repo);
+  const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+
+  if (fs.existsSync(path.join(repoDir, '.git'))) {
+    core.info(`Repository already checked out at ${repoDir}. Performing git pull...`);
+    await exec.exec('git', ['-C', repoDir, 'pull'], {
+      env: {
+        ...process.env,
+        GITHUB_TOKEN: token,
+      },
+    });
+  } else {
+    core.info(`Checking out repository: ${repoUrl}`);
+    await exec.exec('git', ['clone', repoUrl, repoDir], {
+      env: {
+        ...process.env,
+        GITHUB_TOKEN: token,
+      },
+    });
+    await exec.exec('git', ['-C', repoDir, 'checkout', context.ref], {
+      env: {
+        ...process.env,
+        GITHUB_TOKEN: token,
+      },
+    });
+    core.info('Repository checked out successfully.');
+  }
+  return repoDir;
+}
