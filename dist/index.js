@@ -83015,7 +83015,7 @@ async function startFullScanning(repoUrl) {
     const repoDir = await checkoutRepo();
 }
 async function checkoutRepo() {
-    const token = core.getInput('github-token', { required: true });
+    const token = core.getInput('githubToken', { required: true });
     const { owner, repo } = github_1.context.repo;
     const serverUrl = github_1.context.serverUrl;
     const repoDir = path.join(process.cwd(), repo);

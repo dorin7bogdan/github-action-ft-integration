@@ -148,7 +148,7 @@ async function startFullScanning (repoUrl: string | undefined): Promise<void> {
 }
 
 async function checkoutRepo(): Promise<string> {
-  const token = core.getInput('github-token', { required: true });
+  const token = core.getInput('githubToken', { required: true });
   const { owner, repo } = context.repo;
   const serverUrl = context.serverUrl;
 
