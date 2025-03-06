@@ -83025,73 +83025,70 @@ async function checkoutRepo() {
     const workDir = process.cwd();
     const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
     const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
+    core.debug(`Expected authRepoUrl: ${authRepoUrl}`);
+    // Filter process.env to exclude undefined values
+    const filteredEnv = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined) {
+            filteredEnv[key] = value;
+        }
+    }
+    // Configure Git options with common properties
     const gitOptions = {
-        silent: false, // Set to false for debugging
-        env: {
-            ...process.env,
-            GIT_TERMINAL_PROMPT: '0', // Disables interactive prompts
-            GCM_INTERACTIVE: 'never' // Disables Git Credential Manager popups
-        },
+        cwd: workDir, // Common working directory
+        ignoreReturnCode: true, // Ignore non-zero exit codes by default
+        silent: false, // Keep false for debugging
+        env: filteredEnv, // Use filtered env with only string values
         listeners: {
-            stdout: (data) => core.info(data.toString().trim()),
-            stderr: (data) => core.info(data.toString().trim())
+            stderr: (data) => core.debug(data.toString().trim())
         }
     };
+    // Check if _work\ufto-tests is a Git repository
     const gitDir = path.join(workDir, '.git');
     if (fs.existsSync(gitDir)) {
         core.info('Working directory is a Git repo, checking remote URL...');
-        // Get the current remote URL
+        // Get the current remote URL with specific stdout capture
         let currentRemoteUrl = '';
         const getUrlOutput = [];
         const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
             ...gitOptions,
-            cwd: workDir,
-            ignoreReturnCode: true,
             listeners: {
-                stdout: (data) => getUrlOutput.push(data.toString().trim()),
-                stderr: (data) => core.error(data.toString().trim())
+                ...gitOptions.listeners,
+                stdout: (data) => getUrlOutput.push(data.toString().trim())
             }
         });
         if (getUrlExitCode === 0) {
             currentRemoteUrl = getUrlOutput.join('').trim();
+            core.debug(`Current remote URL: ${currentRemoteUrl}`);
         }
         else {
             core.warning('Failed to get current remote URL, proceeding with set-url');
         }
-        // Compare current URL with authRepoUrl (excluding the token for comparison)
-        const baseRepoUrl = repoUrl; // Use the plain URL for comparison
-        if (currentRemoteUrl && currentRemoteUrl.includes(baseRepoUrl)) {
-            core.debug('Remote URL is already correctly set, skipping set-url...');
+        // Compare current URL with base repoUrl (ignoring token)
+        if (currentRemoteUrl && currentRemoteUrl.includes(repoUrl)) {
+            core.info('Remote URL base matches, updating with current token...');
+            const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
+            if (setUrlExitCode !== 0) {
+                throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+            }
         }
         else {
-            core.debug('Updating remote URL...');
-            const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], {
-                ...gitOptions,
-                cwd: workDir,
-                ignoreReturnCode: true
-            });
+            core.info('Remote URL does not match, setting to authenticated URL...');
+            const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
             if (setUrlExitCode !== 0) {
                 throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
             }
         }
         // Perform the pull
         core.info('Pulling updates...');
-        const pullExitCode = await exec.exec('git', ['pull'], {
-            ...gitOptions,
-            cwd: workDir,
-            ignoreReturnCode: true
-        });
+        const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
         if (pullExitCode !== 0) {
             throw new Error(`git pull failed with exit code ${pullExitCode}`);
         }
     }
     else {
-        core.info('Cloning repository ...');
-        const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], {
-            ...gitOptions,
-            cwd: workDir,
-            ignoreReturnCode: true
-        });
+        core.info('Cloning repository directly into _work\\ufto-tests...');
+        const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
         if (cloneExitCode !== 0) {
             throw new Error(`git clone failed with exit code ${cloneExitCode}`);
         }
