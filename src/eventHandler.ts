@@ -155,15 +155,14 @@ async function checkoutRepo(): Promise<string> {
   const { owner, repo } = context.repo;
   const serverUrl = context.serverUrl;
 
-  const workDir = path.join(process.cwd(), 'tests');
+  const workDir = path.resolve(process.cwd(), '..', '..'); // Go up two levels, to _work
   core.info(`Working directory: ${workDir}`);
   const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
   const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
   const gitOptions = {
-    silent: false, // Set to false to capture Git output for debugging
+    silent: false, // Set to false for debugging
     env: {
       ...process.env,
-      //GITHUB_TOKEN: token,
       GIT_TERMINAL_PROMPT: '0', // Disables interactive prompts
       GCM_INTERACTIVE: 'never'  // Disables Git Credential Manager popups
     },
@@ -175,7 +174,6 @@ async function checkoutRepo(): Promise<string> {
 
   if (fs.existsSync(workDir)) {
     core.info('Directory exists, updating remote URL and pulling updates...');
-    // Update the remote URL to use the authenticated URL
     const setUrlExitCode = await exec.exec('git', ['-C', workDir, 'remote', 'set-url', 'origin', authRepoUrl], {
       ...gitOptions,
       cwd: workDir,
@@ -201,7 +199,6 @@ async function checkoutRepo(): Promise<string> {
     if (cloneExitCode !== 0) {
       throw new Error(`git clone failed with exit code ${cloneExitCode}`);
     }
-    core.info('Repository checked out successfully.');
   }
   core.info('END checkoutRepo ...');
   return workDir;
