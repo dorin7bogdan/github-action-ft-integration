@@ -83023,7 +83023,6 @@ async function checkoutRepo() {
     const serverUrl = github_1.context.serverUrl;
     core.info(`Working directory: ${process.cwd()}`);
     const workDir = process.cwd();
-    //const workDir = path.resolve(process.cwd(), '..'); // Go up one level, to _work\repo
     const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
     const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
     const gitOptions = {
@@ -83035,24 +83034,49 @@ async function checkoutRepo() {
         },
         listeners: {
             stdout: (data) => core.info(data.toString().trim()),
-            stderr: (data) => core.error(data.toString().trim())
+            stderr: (data) => core.info(data.toString().trim())
         }
     };
-    // Check if _work\ufto-tests is a Git repository
     const gitDir = path.join(workDir, '.git');
     if (fs.existsSync(gitDir)) {
-        core.info('Working directory is a Git repo, updating remote URL and pulling updates...');
-        // Update the remote URL
-        const setUrlExitCode = await exec.exec('git', ['-C', workDir, 'remote', 'set-url', 'origin', authRepoUrl], {
+        core.info('Working directory is a Git repo, checking remote URL...');
+        // Get the current remote URL
+        let currentRemoteUrl = '';
+        const getUrlOutput = [];
+        const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
             ...gitOptions,
             cwd: workDir,
-            ignoreReturnCode: true
+            ignoreReturnCode: true,
+            listeners: {
+                stdout: (data) => getUrlOutput.push(data.toString().trim()),
+                stderr: (data) => core.error(data.toString().trim())
+            }
         });
-        if (setUrlExitCode !== 0) {
-            throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+        if (getUrlExitCode === 0) {
+            currentRemoteUrl = getUrlOutput.join('').trim();
+        }
+        else {
+            core.warning('Failed to get current remote URL, proceeding with set-url');
+        }
+        // Compare current URL with authRepoUrl (excluding the token for comparison)
+        const baseRepoUrl = repoUrl; // Use the plain URL for comparison
+        if (currentRemoteUrl && currentRemoteUrl.includes(baseRepoUrl)) {
+            core.debug('Remote URL is already correctly set, skipping set-url...');
+        }
+        else {
+            core.debug('Updating remote URL...');
+            const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], {
+                ...gitOptions,
+                cwd: workDir,
+                ignoreReturnCode: true
+            });
+            if (setUrlExitCode !== 0) {
+                throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+            }
         }
         // Perform the pull
-        const pullExitCode = await exec.exec('git', ['-C', workDir, 'pull'], {
+        core.info('Pulling updates...');
+        const pullExitCode = await exec.exec('git', ['pull'], {
             ...gitOptions,
             cwd: workDir,
             ignoreReturnCode: true
@@ -83062,10 +83086,10 @@ async function checkoutRepo() {
         }
     }
     else {
-        core.info('Cloning repository directly into _work\\ufto-tests...');
+        core.info('Cloning repository ...');
         const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], {
             ...gitOptions,
-            cwd: workDir, // Clone into _work\ufto-tests
+            cwd: workDir,
             ignoreReturnCode: true
         });
         if (cloneExitCode !== 0) {
