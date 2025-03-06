@@ -155,7 +155,7 @@ async function checkoutRepo(): Promise<string> {
   const { owner, repo } = context.repo;
   const serverUrl = context.serverUrl;
 
-  const workDir = path.resolve(process.cwd(), '..', '..'); // Go up two levels, to _work
+  const workDir = path.resolve(process.cwd(), '..'); // Go up one level, to _work\repo
   core.info(`Working directory: ${workDir}`);
   const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
   const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
@@ -172,8 +172,11 @@ async function checkoutRepo(): Promise<string> {
     }
   };
 
-  if (fs.existsSync(workDir)) {
-    core.info('Directory exists, updating remote URL and pulling updates...');
+  // Check if _work\ufto-tests is a Git repository
+  const gitDir = path.join(workDir, '.git');
+  if (fs.existsSync(gitDir)) {
+    core.info('Working directory is a Git repo, updating remote URL and pulling updates...');
+    // Update the remote URL
     const setUrlExitCode = await exec.exec('git', ['-C', workDir, 'remote', 'set-url', 'origin', authRepoUrl], {
       ...gitOptions,
       cwd: workDir,
@@ -182,19 +185,29 @@ async function checkoutRepo(): Promise<string> {
     if (setUrlExitCode !== 0) {
       throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
     }
+
+    // Perform the pull
     const pullExitCode = await exec.exec('git', ['-C', workDir, 'pull'], {
       ...gitOptions,
       cwd: workDir,
-      ignoreReturnCode: true // Prevents throwing on non-zero exit
+      ignoreReturnCode: true
     });
     if (pullExitCode !== 0) {
       throw new Error(`git pull failed with exit code ${pullExitCode}`);
     }
   } else {
-    core.info('Cloning repository...');
-    const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, workDir], {
+    // If _work\ufto-tests exists but isn't a Git repo, clear it and clone fresh
+    if (fs.existsSync(workDir)) {
+      core.info('Working directory exists but is not a Git repo, clearing it...');
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(workDir, { recursive: true }); // Recreate _work\ufto-tests
+
+    core.info('Cloning repository directly into _work\\ufto-tests...');
+    const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], {
       ...gitOptions,
-      ignoreReturnCode: true // Prevents throwing on non-zero exit
+      cwd: workDir, // Clone into _work\ufto-tests
+      ignoreReturnCode: true
     });
     if (cloneExitCode !== 0) {
       throw new Error(`git clone failed with exit code ${cloneExitCode}`);
