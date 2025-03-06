@@ -155,8 +155,9 @@ async function checkoutRepo(): Promise<string> {
   const { owner, repo } = context.repo;
   const serverUrl = context.serverUrl;
 
-  const workDir = path.resolve(process.cwd(), '..'); // Go up one level, to _work\repo
-  core.info(`Working directory: ${workDir}`);
+  core.info(`Working directory: ${process.cwd() }`);
+  const workDir = process.cwd();
+  //const workDir = path.resolve(process.cwd(), '..'); // Go up one level, to _work\repo
   const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
   const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
   const gitOptions = {

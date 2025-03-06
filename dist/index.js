@@ -83021,8 +83021,9 @@ async function checkoutRepo() {
     const token = core.getInput('githubToken', { required: true });
     const { owner, repo } = github_1.context.repo;
     const serverUrl = github_1.context.serverUrl;
-    const workDir = path.resolve(process.cwd(), '..'); // Go up one level, to _work\repo
-    core.info(`Working directory: ${workDir}`);
+    core.info(`Working directory: ${process.cwd()}`);
+    const workDir = process.cwd();
+    //const workDir = path.resolve(process.cwd(), '..'); // Go up one level, to _work\repo
     const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
     const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
     const gitOptions = {
