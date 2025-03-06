@@ -155,26 +155,42 @@ async function checkoutRepo(): Promise<string> {
   const { owner, repo } = context.repo;
   const serverUrl = context.serverUrl;
 
-  const workDir = path.join(process.cwd(), repo);
+  const workDir = path.join(process.cwd(), 'tests');
   core.info(`Working directory: ${workDir}`);
   const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
   const gitOptions = {
-    silent: true, // Suppresses output in logs (set to false for debugging)
+    silent: false, // Set to false to capture Git output for debugging
     env: {
       ...process.env,
       GITHUB_TOKEN: token,
       GIT_TERMINAL_PROMPT: '0', // Disables interactive prompts
       GCM_INTERACTIVE: 'never'  // Disables Git Credential Manager popups
+    },
+    listeners: {
+      stdout: (data: Buffer) => core.info(data.toString().trim()),
+      stderr: (data: Buffer) => core.error(data.toString().trim())
     }
   };
 
-  if (fs.existsSync(path.join(workDir, '.git'))) {
-    core.info(`Repository already checked out at ${workDir}. Performing git pull...`);
-    await exec.exec('git', ['-C', workDir, 'pull'], { ...gitOptions, cwd: workDir });
+  if (fs.existsSync(workDir)) {
+    core.info('Directory exists, pulling updates...');
+    const pullExitCode = await exec.exec('git', ['-C', workDir, 'pull'], {
+      ...gitOptions,
+      cwd: workDir,
+      ignoreReturnCode: true // Prevents throwing on non-zero exit
+    });
+    if (pullExitCode !== 0) {
+      throw new Error(`git pull failed with exit code ${pullExitCode}`);
+    }
   } else {
-    core.info(`Checking out repository: ${repoUrl}`);
-    await exec.exec('git', ['clone', repoUrl, workDir], gitOptions);
-    await exec.exec('git', ['-C', workDir, 'checkout', context.ref], gitOptions);
+    core.info('Cloning repository...');
+    const cloneExitCode = await exec.exec('git', ['clone', repoUrl, workDir], {
+      ...gitOptions,
+      ignoreReturnCode: true // Prevents throwing on non-zero exit
+    });
+    if (cloneExitCode !== 0) {
+      throw new Error(`git clone failed with exit code ${cloneExitCode}`);
+    }
     core.info('Repository checked out successfully.');
   }
   core.info('END checkoutRepo ...');
