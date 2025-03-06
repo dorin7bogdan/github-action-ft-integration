@@ -83024,11 +83024,12 @@ async function checkoutRepo() {
     const workDir = path.join(process.cwd(), 'tests');
     core.info(`Working directory: ${workDir}`);
     const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+    const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
     const gitOptions = {
         silent: false, // Set to false to capture Git output for debugging
         env: {
             ...process.env,
-            GITHUB_TOKEN: token,
+            //GITHUB_TOKEN: token,
             GIT_TERMINAL_PROMPT: '0', // Disables interactive prompts
             GCM_INTERACTIVE: 'never' // Disables Git Credential Manager popups
         },
@@ -83050,7 +83051,7 @@ async function checkoutRepo() {
     }
     else {
         core.info('Cloning repository...');
-        const cloneExitCode = await exec.exec('git', ['clone', repoUrl, workDir], {
+        const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, workDir], {
             ...gitOptions,
             ignoreReturnCode: true // Prevents throwing on non-zero exit
         });
