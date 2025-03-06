@@ -174,7 +174,16 @@ async function checkoutRepo(): Promise<string> {
   };
 
   if (fs.existsSync(workDir)) {
-    core.info('Directory exists, pulling updates...');
+    core.info('Directory exists, updating remote URL and pulling updates...');
+    // Update the remote URL to use the authenticated URL
+    const setUrlExitCode = await exec.exec('git', ['-C', workDir, 'remote', 'set-url', 'origin', authRepoUrl], {
+      ...gitOptions,
+      cwd: workDir,
+      ignoreReturnCode: true
+    });
+    if (setUrlExitCode !== 0) {
+      throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+    }
     const pullExitCode = await exec.exec('git', ['-C', workDir, 'pull'], {
       ...gitOptions,
       cwd: workDir,
