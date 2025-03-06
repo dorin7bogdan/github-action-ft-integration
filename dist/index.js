@@ -83061,12 +83061,14 @@ async function checkoutRepo() {
         }
     }
     else {
-        // If _work\ufto-tests exists but isn't a Git repo, clear it and clone fresh
-        if (fs.existsSync(workDir)) {
-            core.info('Working directory exists but is not a Git repo, clearing it...');
-            fs.rmSync(workDir, { recursive: true, force: true });
+        // If _work\ufto-tests exists but isn't a Git repo, move out and clear subfolder
+        const subDir = path.join(workDir, repo);
+        if (fs.existsSync(subDir)) {
+            const parentDir = path.resolve(workDir, '..'); // _work
+            process.chdir(parentDir);
+            fs.rmSync(subDir, { recursive: true, force: true });
+            process.chdir(workDir); // Return to _work\ufto-tests
         }
-        fs.mkdirSync(workDir, { recursive: true }); // Recreate _work\ufto-tests
         core.info('Cloning repository directly into _work\\ufto-tests...');
         const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], {
             ...gitOptions,
