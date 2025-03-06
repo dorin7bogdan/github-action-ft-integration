@@ -196,14 +196,6 @@ async function checkoutRepo(): Promise<string> {
       throw new Error(`git pull failed with exit code ${pullExitCode}`);
     }
   } else {
-    // If _work\ufto-tests exists but isn't a Git repo, move out and clear subfolder
-    const subDir = path.join(workDir, repo);
-    if (fs.existsSync(subDir)) {
-      const parentDir = path.resolve(workDir, '..'); // _work
-      process.chdir(parentDir);
-      fs.rmSync(subDir, { recursive: true, force: true });
-      process.chdir(workDir); // Return to _work\ufto-tests
-    }
     core.info('Cloning repository directly into _work\\ufto-tests...');
     const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], {
       ...gitOptions,
