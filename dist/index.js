@@ -83009,43 +83009,42 @@ const hasExecutorParameters = (configParameters) => {
     return requiredParameters.every(name => foundNames.has(name));
 };
 async function startFullScanning(repoUrl) {
+    core.info('BEGIN startFullScanning ...');
     if (!repoUrl || repoUrl?.trim() === '') {
         throw new Error('Repository URL is required!');
     }
-    const repoDir = await checkoutRepo();
+    const workDir = await checkoutRepo();
+    core.info('END startFullScanning ...');
 }
 async function checkoutRepo() {
+    core.info('BEGIN checkoutRepo ...');
     const token = core.getInput('githubToken', { required: true });
     const { owner, repo } = github_1.context.repo;
     const serverUrl = github_1.context.serverUrl;
-    const repoDir = path.join(process.cwd(), repo);
+    const workDir = path.join(process.cwd(), repo);
+    core.info(`Working directory: ${workDir}`);
     const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-    if (fs.existsSync(path.join(repoDir, '.git'))) {
-        core.info(`Repository already checked out at ${repoDir}. Performing git pull...`);
-        await exec.exec('git', ['-C', repoDir, 'pull'], {
-            env: {
-                ...process.env,
-                GITHUB_TOKEN: token,
-            },
-        });
+    const gitOptions = {
+        silent: true, // Suppresses output in logs (set to false for debugging)
+        env: {
+            ...process.env,
+            GITHUB_TOKEN: token,
+            GIT_TERMINAL_PROMPT: '0', // Disables interactive prompts
+            GCM_INTERACTIVE: 'never' // Disables Git Credential Manager popups
+        }
+    };
+    if (fs.existsSync(path.join(workDir, '.git'))) {
+        core.info(`Repository already checked out at ${workDir}. Performing git pull...`);
+        await exec.exec('git', ['-C', workDir, 'pull'], { ...gitOptions, cwd: workDir });
     }
     else {
         core.info(`Checking out repository: ${repoUrl}`);
-        await exec.exec('git', ['clone', repoUrl, repoDir], {
-            env: {
-                ...process.env,
-                GITHUB_TOKEN: token,
-            },
-        });
-        await exec.exec('git', ['-C', repoDir, 'checkout', github_1.context.ref], {
-            env: {
-                ...process.env,
-                GITHUB_TOKEN: token,
-            },
-        });
+        await exec.exec('git', ['clone', repoUrl, workDir], gitOptions);
+        await exec.exec('git', ['-C', workDir, 'checkout', github_1.context.ref], gitOptions);
         core.info('Repository checked out successfully.');
     }
-    return repoDir;
+    core.info('END checkoutRepo ...');
+    return workDir;
 }
 
 
