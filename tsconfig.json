@@ -7,6 +7,7 @@
     "esModuleInterop": true, /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables 'allowSyntheticDefaultImports' for type compatibility. */
     "forceConsistentCasingInFileNames": true, /* Ensure that casing is correct in imports. */
     "strict": true,
+    "typeRoots": ["./node_modules/@types", "./src/typings"], /* Specify multiple folders that act like `node_modules/@types`. */
     "skipLibCheck": true, /* Enable all strict type-checking options. */
     "types": [ "node", "jest" ],
     "sourceMap": false /* For debug: create source map files for emitted JavaScript files. */

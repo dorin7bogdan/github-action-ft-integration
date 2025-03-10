@@ -43,11 +43,11 @@ import {
 } from './service/executorService';
 import CiParameter from './dto/octane/events/CiParameter';
 import * as core from '@actions/core';
-import * as exec from '@actions/exec';
-import * as fs from 'fs';
-import * as path from 'path';
+import Discovery from './discovery/Discovery';
+import { ToolType } from './dto/ft/ToolType';
 
 const LOGGER: Logger = new Logger('eventHandler');
+const UFT = 'uft';
 
 export const handleCurrentEvent = async (): Promise<void> => {
   core.info('BEGIN handleEvent ...');
@@ -56,9 +56,9 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const eventName = context.eventName;
 
   if (event) {
-    core.info(`event = ${JSON.stringify(event)}`);
+    core.debug(`event = ${JSON.stringify(event)}`);
   } else {
-    core.info('event is null or undefined');
+    core.debug('event is null or undefined');
   }
 
   core.info(`eventType = ${event?.action || eventName}`);
@@ -85,7 +85,12 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      await startFullScanning(repoUrl);
+      let toolType = core.getInput('testingToolType') ?? UFT;
+      if (toolType.trim() == "") {
+        toolType = UFT;
+      }
+      const discovery = new Discovery(ToolType.fromType(toolType));
+      await discovery.startFullScanning(repoUrl);
       break;
     case ActionsEventType.PUSH:
       core.info('WORKFLOW_STARTED...');
@@ -140,96 +145,3 @@ const hasExecutorParameters = (
   return requiredParameters.every(name => foundNames.has(name));
 };
 
-async function startFullScanning (repoUrl: string | undefined): Promise<void> {
-  core.info('BEGIN startFullScanning ...');
-  if (!repoUrl || repoUrl?.trim() === '') {
-    throw new Error('Repository URL is required!');
-  }
-  const workDir = await checkoutRepo();
-  core.info('END startFullScanning ...');
-}
-
-async function checkoutRepo(): Promise<string> {
-  core.info('BEGIN checkoutRepo ...');
-  const token = core.getInput('githubToken', { required: true });
-  const { owner, repo } = context.repo;
-  const serverUrl = context.serverUrl;
-
-  core.info(`Working directory: ${process.cwd() }`);
-  const workDir = process.cwd();
-  const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-  const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
-  core.debug(`Expected authRepoUrl: ${authRepoUrl}`);
-
-  // Filter process.env to exclude undefined values
-  const filteredEnv: { [key: string]: string } = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      filteredEnv[key] = value;
-    }
-  }
-
-  // Configure Git options with common properties
-  const gitOptions = {
-    cwd: workDir,          // Common working directory
-    ignoreReturnCode: true, // Ignore non-zero exit codes by default
-    silent: false,         // Keep false for debugging
-    env: filteredEnv,      // Use filtered env with only string values
-    listeners: {          // Common listeners for all Git commands
-      stderr: (data: Buffer) => core.debug(data.toString().trim())
-    }
-  };
-
-  // Check if _work\ufto-tests is a Git repository
-  const gitDir = path.join(workDir, '.git');
-  if (fs.existsSync(gitDir)) {
-    core.info('Working directory is a Git repo, checking remote URL...');
-
-    // Get the current remote URL with specific stdout capture
-    let currentRemoteUrl = '';
-    const getUrlOutput: string[] = [];
-    const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
-      ...gitOptions,
-      listeners: {
-        ...gitOptions.listeners,
-        stdout: (data: Buffer) => getUrlOutput.push(data.toString().trim())
-      }
-    });
-    if (getUrlExitCode === 0) {
-      currentRemoteUrl = getUrlOutput.join('').trim();
-      core.debug(`Current remote URL: ${currentRemoteUrl}`);
-    } else {
-      core.warning('Failed to get current remote URL, proceeding with set-url');
-    }
-
-    // Compare current URL with base repoUrl (ignoring token)
-    if (currentRemoteUrl && currentRemoteUrl.includes(repoUrl)) {
-      core.info('Remote URL base matches, updating with current token...');
-      const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
-      if (setUrlExitCode !== 0) {
-        throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
-      }
-    } else {
-      core.info('Remote URL does not match, setting to authenticated URL...');
-      const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
-      if (setUrlExitCode !== 0) {
-        throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
-      }
-    }
-
-    // Perform the pull
-    core.info('Pulling updates...');
-    const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
-    if (pullExitCode !== 0) {
-      throw new Error(`git pull failed with exit code ${pullExitCode}`);
-    }
-  } else {
-    core.info('Cloning repository directly into _work\\ufto-tests...');
-    const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
-    if (cloneExitCode !== 0) {
-      throw new Error(`git clone failed with exit code ${cloneExitCode}`);
-    }
-  }
-  core.info('END checkoutRepo ...');
-  return workDir;
-}

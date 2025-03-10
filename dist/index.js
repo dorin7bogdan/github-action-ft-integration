@@ -9394,8 +9394,13 @@ class Agent extends http.Agent {
             .then((socket) => {
             this.decrementSockets(name, fakeSocket);
             if (socket instanceof http.Agent) {
-                // @ts-expect-error `addRequest()` isn't defined in `@types/node`
-                return socket.addRequest(req, connectOpts);
+                try {
+                    // @ts-expect-error `addRequest()` isn't defined in `@types/node`
+                    return socket.addRequest(req, connectOpts);
+                }
+                catch (err) {
+                    return cb(err);
+                }
             }
             this[INTERNAL].currentSocket = socket;
             // @ts-expect-error `createSocket()` isn't defined in `@types/node`
@@ -20555,6 +20560,100 @@ module.exports = desc && typeof desc.get === 'function'
 
 /***/ }),
 
+/***/ 10521:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var Stream = __nccwpck_require__(2203)
+var writeMethods = ["write", "end", "destroy"]
+var readMethods = ["resume", "pause"]
+var readEvents = ["data", "close"]
+var slice = Array.prototype.slice
+
+module.exports = duplex
+
+function forEach (arr, fn) {
+    if (arr.forEach) {
+        return arr.forEach(fn)
+    }
+
+    for (var i = 0; i < arr.length; i++) {
+        fn(arr[i], i)
+    }
+}
+
+function duplex(writer, reader) {
+    var stream = new Stream()
+    var ended = false
+
+    forEach(writeMethods, proxyWriter)
+
+    forEach(readMethods, proxyReader)
+
+    forEach(readEvents, proxyStream)
+
+    reader.on("end", handleEnd)
+
+    writer.on("drain", function() {
+      stream.emit("drain")
+    })
+
+    writer.on("error", reemit)
+    reader.on("error", reemit)
+
+    stream.writable = writer.writable
+    stream.readable = reader.readable
+
+    return stream
+
+    function proxyWriter(methodName) {
+        stream[methodName] = method
+
+        function method() {
+            return writer[methodName].apply(writer, arguments)
+        }
+    }
+
+    function proxyReader(methodName) {
+        stream[methodName] = method
+
+        function method() {
+            stream.emit(methodName)
+            var func = reader[methodName]
+            if (func) {
+                return func.apply(reader, arguments)
+            }
+            reader.emit(methodName)
+        }
+    }
+
+    function proxyStream(methodName) {
+        reader.on(methodName, reemit)
+
+        function reemit() {
+            var args = slice.call(arguments)
+            args.unshift(methodName)
+            stream.emit.apply(stream, args)
+        }
+    }
+
+    function handleEnd() {
+        if (ended) {
+            return
+        }
+        ended = true
+        var args = slice.call(arguments)
+        args.unshift("end")
+        stream.emit.apply(stream, args)
+    }
+
+    function reemit(err) {
+        stream.emit("error", err)
+    }
+}
+
+
+/***/ }),
+
 /***/ 59123:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -21522,6 +21621,315 @@ module.exports = function setToStringTag(object, value) {
 		}
 	}
 };
+
+
+/***/ }),
+
+/***/ 27807:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+//filter will reemit the data if cb(err,pass) pass is truthy
+
+// reduce is more tricky
+// maybe we want to group the reductions or emit progress updates occasionally
+// the most basic reduce just emits one 'data' event after it has recieved 'end'
+
+var Stream = (__nccwpck_require__(2203).Stream)
+  , es = exports
+  , through = __nccwpck_require__(50461)
+  , from = __nccwpck_require__(95124)
+  , duplex = __nccwpck_require__(10521)
+  , map = __nccwpck_require__(86253)
+  , pause = __nccwpck_require__(69705)
+  , split = __nccwpck_require__(73764)
+  , pipeline = __nccwpck_require__(4358)
+
+es.Stream = Stream //re-export Stream from core
+es.through = through
+es.from = from
+es.duplex = duplex
+es.map = map
+es.pause = pause
+es.split = split
+es.pipeline = es.connect = es.pipe = pipeline
+// merge / concat
+//
+// combine multiple streams into a single stream.
+// will emit end only once
+
+es.concat = //actually this should be called concat
+es.merge = function (/*streams...*/) {
+  var toMerge = [].slice.call(arguments)
+  var stream = new Stream()
+  var endCount = 0
+  stream.writable = stream.readable = true
+
+  toMerge.forEach(function (e) {
+    e.pipe(stream, {end: false})
+    var ended = false
+    e.on('end', function () {
+      if(ended) return
+      ended = true
+      endCount ++
+      if(endCount == toMerge.length)
+        stream.emit('end') 
+    })
+  })
+  stream.write = function (data) {
+    this.emit('data', data)
+  }
+  stream.destroy = function () {
+    merge.forEach(function (e) {
+      if(e.destroy) e.destroy()
+    })
+  }
+  return stream
+}
+
+
+// writable stream, collects all events into an array 
+// and calls back when 'end' occurs
+// mainly I'm using this to test the other functions
+
+es.writeArray = function (done) {
+  if ('function' !== typeof done)
+    throw new Error('function writeArray (done): done must be function')
+
+  var a = new Stream ()
+    , array = [], isDone = false
+  a.write = function (l) {
+    array.push(l)
+  }
+  a.end = function () {
+    isDone = true
+    done(null, array)
+  }
+  a.writable = true
+  a.readable = false
+  a.destroy = function () {
+    a.writable = a.readable = false
+    if(isDone) return
+    done(new Error('destroyed before end'), array)
+  }
+  return a
+}
+
+//return a Stream that reads the properties of an object
+//respecting pause() and resume()
+
+es.readArray = function (array) {
+  var stream = new Stream()
+    , i = 0
+    , paused = false
+    , ended = false
+ 
+  stream.readable = true  
+  stream.writable = false
+ 
+  if(!Array.isArray(array))
+    throw new Error('event-stream.read expects an array')
+  
+  stream.resume = function () {
+    if(ended) return
+    paused = false
+    var l = array.length
+    while(i < l && !paused && !ended) {
+      stream.emit('data', array[i++])
+    }
+    if(i == l && !ended)
+      ended = true, stream.readable = false, stream.emit('end')
+  }
+  process.nextTick(stream.resume)
+  stream.pause = function () {
+     paused = true
+  }
+  stream.destroy = function () {
+    ended = true
+    stream.emit('close')
+  }
+  return stream
+}
+
+//
+// readable (asyncFunction)
+// return a stream that calls an async function while the stream is not paused.
+//
+// the function must take: (count, callback) {...
+//
+
+es.readable =
+function (func, continueOnError) {
+  var stream = new Stream()
+    , i = 0
+    , paused = false
+    , ended = false
+    , reading = false
+
+  stream.readable = true  
+  stream.writable = false
+ 
+  if('function' !== typeof func)
+    throw new Error('event-stream.readable expects async function')
+  
+  stream.on('end', function () { ended = true })
+  
+  function get (err, data) {
+    
+    if(err) {
+      stream.emit('error', err)
+      if(!continueOnError) stream.emit('end')
+    } else if (arguments.length > 1)
+      stream.emit('data', data)
+
+    process.nextTick(function () {
+      if(ended || paused || reading) return
+      try {
+        reading = true
+        func.call(stream, i++, function () {
+          reading = false
+          get.apply(null, arguments)
+        })
+      } catch (err) {
+        stream.emit('error', err)    
+      }
+    })
+  }
+  stream.resume = function () {
+    paused = false
+    get()
+  }
+  process.nextTick(get)
+  stream.pause = function () {
+     paused = true
+  }
+  stream.destroy = function () {
+    stream.emit('end')
+    stream.emit('close')
+    ended = true
+  }
+  return stream
+}
+
+
+//
+// map sync
+//
+
+es.mapSync = function (sync) { 
+  return es.through(function write(data) {
+    var mappedData = sync(data)
+    if (typeof mappedData !== 'undefined')
+      this.emit('data', mappedData)
+  })
+}
+
+//
+// log just print out what is coming through the stream, for debugging
+//
+
+es.log = function (name) {
+  return es.through(function (data) {
+    var args = [].slice.call(arguments)
+    if(name) console.error(name, data)
+    else     console.error(data)
+    this.emit('data', data)
+  })
+}
+
+
+//
+// child -- pipe through a child process
+//
+
+es.child = function (child) {
+
+  return es.duplex(child.stdin, child.stdout)
+
+}
+
+//
+// parse
+//
+// must be used after es.split() to ensure that each chunk represents a line
+// source.pipe(es.split()).pipe(es.parse())
+
+es.parse = function () { 
+  return es.through(function (data) {
+    var obj
+    try {
+      if(data) //ignore empty lines
+        obj = JSON.parse(data.toString())
+    } catch (err) {
+      return console.error(err, 'attemping to parse:', data)
+    }
+    //ignore lines that where only whitespace.
+    if(obj !== undefined)
+      this.emit('data', obj)
+  })
+}
+//
+// stringify
+//
+
+es.stringify = function () { 
+  var Buffer = (__nccwpck_require__(20181).Buffer)
+  return es.mapSync(function (e){ 
+    return JSON.stringify(Buffer.isBuffer(e) ? e.toString() : e) + '\n'
+  }) 
+}
+
+//
+// replace a string within a stream.
+//
+// warn: just concatenates the string and then does str.split().join(). 
+// probably not optimal.
+// for smallish responses, who cares?
+// I need this for shadow-npm so it's only relatively small json files.
+
+es.replace = function (from, to) {
+  return es.pipeline(es.split(from), es.join(to))
+} 
+
+//
+// join chunks with a joiner. just like Array#join
+// also accepts a callback that is passed the chunks appended together
+// this is still supported for legacy reasons.
+// 
+
+es.join = function (str) {
+  
+  //legacy api
+  if('function' === typeof str)
+    return es.wait(str)
+
+  var first = true
+  return es.through(function (data) {
+    if(!first)
+      this.emit('data', str)
+    first = false
+    this.emit('data', data)
+    return true
+  })
+}
+
+
+//
+// wait. callback when 'end' is emitted, with all chunks appended as string.
+//
+
+es.wait = function (callback) {
+  var body = ''
+  return es.through(function (data) { body += data },
+    function () {
+      this.emit('data', body)
+      this.emit('end')
+      if(callback) callback(null, body)
+    })
+}
+
+es.pipeable = function () {
+  throw new Error('[EVENT-STREAM] es.pipeable is deprecated')
+}
 
 
 /***/ }),
@@ -23345,6 +23753,82 @@ module.exports = function(dst, src) {
 
   return dst;
 };
+
+
+/***/ }),
+
+/***/ 95124:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+"use strict";
+
+
+
+var Stream = __nccwpck_require__(2203)
+
+// from
+//
+// a stream that reads from an source.
+// source may be an array, or a function.
+// from handles pause behaviour for you.
+
+module.exports =
+function from (source) {
+  if(Array.isArray(source)) {
+		var source_index = 0, source_len = source.length;
+    return from (function (i) {
+      if(source_index < source_len)
+        this.emit('data', source[source_index++])
+      else
+        this.emit('end')
+      return true
+    })
+  }
+  var s = new Stream(), i = 0
+  s.ended = false
+  s.started = false
+  s.readable = true
+  s.writable = false
+  s.paused = false
+  s.ended = false
+  s.pause = function () {
+    s.started = true
+    s.paused = true
+  }
+  function next () {
+    s.started = true
+    if(s.ended) return
+    while(!s.ended && !s.paused && source.call(s, i++, function () {
+      if(!s.ended && !s.paused)
+          process.nextTick(next);
+    }))
+      ;
+  }
+  s.resume = function () {
+    s.started = true
+    s.paused = false
+    next()
+  }
+  s.on('end', function () {
+    s.ended = true
+    s.readable = false
+    process.nextTick(s.destroy)
+  })
+  s.destroy = function () {
+    s.ended = true
+    s.emit('close') 
+  }
+  /*
+    by default, the stream will start emitting at nextTick
+    if you want, you can pause it, after pipeing.
+    you can also resume before next tick, and that will also
+    work.
+  */
+  process.nextTick(function () {
+    if(!s.started) s.resume()
+  })
+  return s
+}
 
 
 /***/ }),
@@ -32467,6 +32951,157 @@ module.exports = Logger;
 
 /***/ }),
 
+/***/ 86253:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+//filter will reemit the data if cb(err,pass) pass is truthy
+
+// reduce is more tricky
+// maybe we want to group the reductions or emit progress updates occasionally
+// the most basic reduce just emits one 'data' event after it has recieved 'end'
+
+
+var Stream = (__nccwpck_require__(2203).Stream)
+
+
+//create an event stream and apply function to each .write
+//emitting each response as data
+//unless it's an empty callback
+
+module.exports = function (mapper, opts) {
+
+  var stream = new Stream()
+    , inputs = 0
+    , outputs = 0
+    , ended = false
+    , paused = false
+    , destroyed = false
+    , lastWritten = 0
+    , inNext = false
+
+  opts = opts || {};
+  var errorEventName = opts.failures ? 'failure' : 'error';
+
+  // Items that are not ready to be written yet (because they would come out of
+  // order) get stuck in a queue for later.
+  var writeQueue = {}
+
+  stream.writable = true
+  stream.readable = true
+
+  function queueData (data, number) {
+    var nextToWrite = lastWritten + 1
+
+    if (number === nextToWrite) {
+      // If it's next, and its not undefined write it
+      if (data !== undefined) {
+        stream.emit.apply(stream, ['data', data])
+      }
+      lastWritten ++
+      nextToWrite ++
+    } else {
+      // Otherwise queue it for later.
+      writeQueue[number] = data
+    }
+
+    // If the next value is in the queue, write it
+    if (writeQueue.hasOwnProperty(nextToWrite)) {
+      var dataToWrite = writeQueue[nextToWrite]
+      delete writeQueue[nextToWrite]
+      return queueData(dataToWrite, nextToWrite)
+    }
+
+    outputs ++
+    if(inputs === outputs) {
+      if(paused) paused = false, stream.emit('drain') //written all the incoming events
+      if(ended) end()
+    }
+  }
+
+  function next (err, data, number) {
+    if(destroyed) return
+    inNext = true
+
+    if (!err || opts.failures) {
+      queueData(data, number)
+    }
+
+    if (err) {
+      stream.emit.apply(stream, [ errorEventName, err ]);
+    }
+
+    inNext = false;
+  }
+
+  // Wrap the mapper function by calling its callback with the order number of
+  // the item in the stream.
+  function wrappedMapper (input, number, callback) {
+    return mapper.call(null, input, function(err, data){
+      callback(err, data, number)
+    })
+  }
+
+  stream.write = function (data) {
+    if(ended) throw new Error('map stream is not writable')
+    inNext = false
+    inputs ++
+
+    try {
+      //catch sync errors and handle them like async errors
+      var written = wrappedMapper(data, inputs, next)
+      paused = (written === false)
+      return !paused
+    } catch (err) {
+      //if the callback has been called syncronously, and the error
+      //has occured in an listener, throw it again.
+      if(inNext)
+        throw err
+      next(err)
+      return !paused
+    }
+  }
+
+  function end (data) {
+    //if end was called with args, write it, 
+    ended = true //write will emit 'end' if ended is true
+    stream.writable = false
+    if(data !== undefined) {
+      return queueData(data, inputs)
+    } else if (inputs == outputs) { //wait for processing 
+      stream.readable = false, stream.emit('end'), stream.destroy() 
+    }
+  }
+
+  stream.end = function (data) {
+    if(ended) return
+    end(data)
+  }
+
+  stream.destroy = function () {
+    ended = destroyed = true
+    stream.writable = stream.readable = paused = false
+    process.nextTick(function () {
+      stream.emit('close')
+    })
+  }
+  stream.pause = function () {
+    paused = true
+  }
+
+  stream.resume = function () {
+    paused = false
+  }
+
+  return stream
+}
+
+
+
+
+
+
+/***/ }),
+
 /***/ 55641:
 /***/ ((module) => {
 
@@ -33108,6 +33743,1231 @@ exports.generateBase = generateBase
 
 /***/ }),
 
+/***/ 38796:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+var fs = __nccwpck_require__(79896);
+var EventEmitter = (__nccwpck_require__(24434).EventEmitter);
+var util = __nccwpck_require__(39023);
+var async = __nccwpck_require__(22791);
+var _ = __nccwpck_require__(78190);
+var es = __nccwpck_require__(27807);
+
+function Header() {
+};
+
+Header.ole_id = new Buffer( 'D0CF11E0A1B11AE1', 'hex' );
+
+Header.prototype.load = function( buffer ) {
+   var i;
+   for( i = 0; i < 8; i++ ) {
+      if ( Header.ole_id[i] != buffer[i] )
+         return false;
+   }
+
+   this.secSize        = 1 << buffer.readInt16LE( 30 );  // Size of sectors
+   this.shortSecSize   = 1 << buffer.readInt16LE( 32 );  // Size of short sectors
+   this.SATSize        =      buffer.readInt32LE( 44 );  // Number of sectors used for the Sector Allocation Table
+   this.dirSecId       =      buffer.readInt32LE( 48 );  // Starting Sec ID of the directory stream
+   this.shortStreamMax =      buffer.readInt32LE( 56 );  // Maximum size of a short stream
+   this.SSATSecId      =      buffer.readInt32LE( 60 );  // Starting Sec ID of the Short Sector Allocation Table
+   this.SSATSize       =      buffer.readInt32LE( 64 );  // Number of sectors used for the Short Sector Allocation Table
+   this.MSATSecId      =      buffer.readInt32LE( 68 );  // Starting Sec ID of the Master Sector Allocation Table
+   this.MSATSize       =      buffer.readInt32LE( 72 );  // Number of sectors used for the Master Sector Allocation Table
+
+   // The first 109 sectors of the MSAT
+   this.partialMSAT = new Array(109);
+   for( i = 0; i < 109; i++ )
+      this.partialMSAT[i] = buffer.readInt32LE( 76 + i * 4 );
+
+   return true;
+};
+
+function AllocationTable(doc) {
+   this._doc = doc;
+}
+
+AllocationTable.SecIdFree       = -1;
+AllocationTable.SecIdEndOfChain = -2;
+AllocationTable.SecIdSAT        = -3;
+AllocationTable.SecIdMSAT       = -4;
+
+AllocationTable.prototype.load = function(secIds, callback) {
+   var self = this;
+   var doc = self._doc;
+   var header = doc._header;
+
+   self._table = new Array( secIds.length * ( header.secSize / 4 ) );
+
+   doc._readSectors( secIds, function(buffer) {
+      var i;
+      for ( i = 0; i < buffer.length / 4; i++ ) {
+         self._table[i] = buffer.readInt32LE( i * 4 );
+      }
+      callback();
+   });
+};
+
+AllocationTable.prototype.getSecIdChain = function(startSecId) {
+   var secId = startSecId;
+   var secIds = [];
+   while ( secId != AllocationTable.SecIdEndOfChain ) {
+      secIds.push( secId );
+      secId = this._table[secId];
+   }
+
+   return secIds;
+};
+
+function DirectoryTree(doc) {
+   this._doc = doc;
+}
+
+DirectoryTree.EntryTypeEmpty   = 0;
+DirectoryTree.EntryTypeStorage = 1;
+DirectoryTree.EntryTypeStream  = 2;
+DirectoryTree.EntryTypeRoot    = 5;
+
+DirectoryTree.NodeColorRed   = 0;
+DirectoryTree.NodeColorBlack = 1;
+
+DirectoryTree.Leaf = -1;
+
+DirectoryTree.prototype.load = function( secIds, callback ) {
+   var self = this;
+   var doc = this._doc;
+
+   doc._readSectors( secIds, function(buffer) {
+
+      var count = buffer.length / 128;
+      self._entries = new Array( count );
+      var i = 0;
+      for( i = 0; i < count; i++ )
+      {
+         var offset = i * 128;
+
+         var nameLength = Math.max( buffer.readInt16LE( 64 + offset ) - 1, 0 );
+
+         var entry = {};
+         entry.name = buffer.toString('utf16le', 0 + offset, nameLength + offset );
+         entry.type = buffer.readInt8( 66 + offset );
+         entry.nodeColor = buffer.readInt8( 67 + offset );
+         entry.left = buffer.readInt32LE( 68 + offset );
+         entry.right = buffer.readInt32LE( 72 + offset );
+         entry.storageDirId = buffer.readInt32LE( 76 + offset );
+         entry.secId = buffer.readInt32LE( 116 + offset );
+         entry.size = buffer.readInt32LE( 120 + offset );
+
+         self._entries[i] = entry;
+      }
+
+      self.root = _.find( self._entries, function(entry) {
+         return entry.type === DirectoryTree.EntryTypeRoot;
+      });
+
+      self._buildHierarchy( self.root );
+
+      callback();
+   });
+};
+
+DirectoryTree.prototype._buildHierarchy = function( storageEntry ) {
+   var self = this;
+   var childIds = this._getChildIds( storageEntry );
+
+   storageEntry.storages = {};
+   storageEntry.streams  = {};
+
+   _.each( childIds, function( childId ) {
+      var childEntry = self._entries[childId];
+      var name = childEntry.name;
+      if ( childEntry.type === DirectoryTree.EntryTypeStorage ) {
+         storageEntry.storages[name] = childEntry;
+      }
+      if ( childEntry.type === DirectoryTree.EntryTypeStream ) {
+         storageEntry.streams[name] = childEntry;
+      }
+   });
+
+   _.each( storageEntry.storages, function( childStorageEntry ) {
+      self._buildHierarchy( childStorageEntry );
+   });
+};
+
+DirectoryTree.prototype._getChildIds = function( storageEntry ) {
+   var self = this;
+   var childIds = [];
+
+   function visit( visitEntry ) {
+      if ( visitEntry.left !== DirectoryTree.Leaf ) {
+         childIds.push( visitEntry.left );
+         visit( self._entries[visitEntry.left] );
+      }
+      if ( visitEntry.right !== DirectoryTree.Leaf ) {
+         childIds.push( visitEntry.right );
+         visit( self._entries[visitEntry.right] );
+      }
+   };
+
+   if ( storageEntry.storageDirId > -1 ) {
+      childIds.push( storageEntry.storageDirId );
+      var rootChildEntry = self._entries[storageEntry.storageDirId];
+      visit( rootChildEntry );
+   }
+
+   return childIds;
+};
+
+function Storage( doc, dirEntry ) {
+   this._doc = doc;
+   this._dirEntry = dirEntry;
+};
+
+Storage.prototype.storage = function( storageName ) {
+   return new Storage( this._doc, this._dirEntry.storages[ storageName ] );
+};
+
+Storage.prototype.stream = function( streamName ) {
+   var streamEntry = this._dirEntry.streams[streamName];
+   if ( !streamEntry )
+      return null;
+
+   var self = this;
+   var doc  = self._doc;
+   var bytes = streamEntry.size;
+
+   var allocationTable = doc._SAT;
+   var shortStream = false;
+   if ( bytes < doc._header.shortStreamMax ) {
+      shortStream = true;
+      allocationTable = doc._SSAT;
+   }
+
+   var secIds = allocationTable.getSecIdChain( streamEntry.secId );
+
+   return es.readable( function( i, callback ) {
+      var stream = this;  // Function called in context of stream
+
+      if ( i >= secIds.length ) {
+         stream.emit('end');
+         return;
+      }
+
+      function sectorCallback(buffer) {
+         if ( bytes - buffer.length < 0 ) {
+            buffer = buffer.slice( 0, bytes );
+         }
+
+         bytes -= buffer.length;
+         stream.emit('data', buffer);
+         callback();
+      };
+
+      if ( shortStream ) {
+         doc._readShortSector( secIds[i], sectorCallback );
+      }
+      else {
+         doc._readSector( secIds[i], sectorCallback );
+      }
+   });
+};
+
+//function Stream( doc, dirEntry ) {
+//   this._doc = doc;
+//   this._dirEntry = dirEntry;
+//};
+
+function OleCompoundDoc( filename ) {
+   EventEmitter.call(this);
+
+   this._filename = filename;
+   this._skipBytes = 0;
+};
+util.inherits(OleCompoundDoc, EventEmitter);
+
+OleCompoundDoc.prototype.read = function() {
+   this._read();
+};
+
+OleCompoundDoc.prototype.readWithCustomHeader = function( size, callback ) {
+   this._skipBytes = size;
+   this._customHeaderCallback = callback;
+   this._read();
+};
+
+OleCompoundDoc.prototype._read = function() {
+   var series = [
+      this._openFile.bind(this),
+      this._readHeader.bind(this),
+      this._readMSAT.bind(this),
+      this._readSAT.bind(this),
+      this._readSSAT.bind(this),
+      this._readDirectoryTree.bind(this)
+   ];
+
+   if ( this._skipBytes != 0 ) {
+      series.splice( 1, 0, this._readCustomHeader.bind(this) );
+   }
+
+   async.series(
+      series,
+      (function(err) {
+         if ( err ) {
+            this.emit('err', err);
+            return;
+         }
+
+         this.emit('ready');
+      }).bind(this)
+   );
+};
+
+OleCompoundDoc.prototype._openFile = function( callback ) {
+   var self = this;
+   fs.open( this._filename, 'r', 0666, function(err, fd) {
+      if( err ) {
+         self.emit('err', err);
+         return;
+      }
+
+      self._fd = fd;
+      callback();
+   });
+};
+
+OleCompoundDoc.prototype._readCustomHeader = function(callback) {
+   var self = this;
+   var buffer = new Buffer(this._skipBytes);
+   fs.read( self._fd, buffer, 0, this._skipBytes, 0, function(err, bytesRead, buffer) {
+      if(err) {
+         self.emit('err', err);
+         return;
+      }
+
+      if( !self._customHeaderCallback(buffer) )
+         return;
+
+      callback();
+   });
+};
+
+OleCompoundDoc.prototype._readHeader = function(callback) {
+   var self = this;
+   var buffer = new Buffer(512);
+   fs.read( this._fd, buffer, 0, 512, 0 + this._skipBytes, function(err, bytesRead, buffer) {
+      if( err ) {
+         self.emit('err', err);
+         return;
+      }
+
+      var header = self._header = new Header();
+      if ( !header.load( buffer ) ) {
+         self.emit('err', 'Not a valid compound document.');
+         return;
+      }
+
+      callback();
+   });
+};
+
+OleCompoundDoc.prototype._readMSAT = function(callback) {
+   var self = this;
+   var header = self._header;
+
+   self._MSAT = header.partialMSAT.slice(0);
+   self._MSAT.length = header.SATSize;
+
+   if( header.SATSize <= 109 || header.MSATSize == 0 ) {
+      callback();
+      return;
+   }
+
+   var buffer = new Buffer( header.secSize );
+   var currMSATIndex = 109;
+   var i = 0;
+   var secId = header.MSATSecId;
+
+   async.whilst(
+      function() {
+         return i < header.MSATSize;
+      },
+      function(whilstCallback) {
+         self._readSector(secId, function(sectorBuffer) {
+            var s;
+            for( s = 0; s < header.secSize - 4; s += 4 )
+            {
+               if( currMSATIndex >= header.SATSize )
+                  break;
+               else
+                  self._MSAT[currMSATIndex] = sectorBuffer.readInt32LE( s );
+
+               currMSATIndex++;
+            }
+
+            secId = sectorBuffer.readInt32LE( header.secSize - 4 );
+            i++;
+            whilstCallback();
+         });
+      },
+      function(err) {
+         if ( err ) {
+            self.emit('err', err);
+            return;
+         }
+
+         callback();
+      }
+   );
+};
+
+OleCompoundDoc.prototype._readSector = function(secId, callback) {
+   this._readSectors( [ secId ], callback );
+};
+
+OleCompoundDoc.prototype._readSectors = function(secIds, callback) {
+   var self = this;
+   var header = self._header;
+   var buffer = new Buffer( secIds.length * header.secSize );
+
+   var i = 0;
+
+   async.whilst(
+      function() {
+         return i < secIds.length;
+      },
+      function(whilstCallback) {
+         var bufferOffset = i * header.secSize;
+         var fileOffset = self._getFileOffsetForSec( secIds[i] );
+         fs.read( self._fd, buffer, bufferOffset, header.secSize, fileOffset, function(err, bytesRead, buffer) {
+            if ( err ) {
+               self.emit('err', err);
+               return;
+            }
+            i++;
+            whilstCallback();
+         });
+      },
+      function(err) {
+         if ( err ) {
+            self.emit('err', err);
+         }
+         callback(buffer);
+      }
+   );
+};
+
+OleCompoundDoc.prototype._readShortSector = function(secId, callback) {
+   this._readShortSectors( [ secId ], callback );
+};
+
+OleCompoundDoc.prototype._readShortSectors = function(secIds, callback) {
+   var self = this;
+   var header = self._header;
+   var buffer = new Buffer( secIds.length * header.shortSecSize );
+
+   var i = 0;
+
+   async.whilst(
+      function() {
+         return i < secIds.length;
+      },
+      function(whilstCallback) {
+         var bufferOffset = i * header.shortSecSize;
+         var fileOffset = self._getFileOffsetForShortSec( secIds[i] );
+         fs.read( self._fd, buffer, bufferOffset, header.shortSecSize, fileOffset, function(err, bytesRead, buffer) {
+            if ( err ) {
+               self.emit('err', err);
+               return;
+            }
+            i++;
+            whilstCallback();
+         });
+      },
+      function(err) {
+         if ( err ) {
+            self.emit('err', err);
+         }
+         callback(buffer);
+      }
+   );
+};
+
+OleCompoundDoc.prototype._readSAT = function(callback) {
+   var self = this;
+   self._SAT = new AllocationTable(self);
+
+   self._SAT.load( self._MSAT, callback );
+};
+
+OleCompoundDoc.prototype._readSSAT = function(callback) {
+   var self = this;
+   var header = self._header;
+   self._SSAT = new AllocationTable(self);
+
+   var secIds = self._SAT.getSecIdChain( header.SSATSecId );
+   if ( secIds.length != header.SSATSize ) {
+      self.emit('err', 'Invalid Short Sector Allocation Table');
+      return;
+   }
+
+   self._SSAT.load( secIds, callback);
+};
+
+OleCompoundDoc.prototype._readDirectoryTree = function(callback) {
+   var self = this;
+   var header = self._header;
+
+   self._directoryTree = new DirectoryTree(this);
+
+   var secIds = self._SAT.getSecIdChain( header.dirSecId );
+   self._directoryTree.load( secIds, function() {
+
+      var rootEntry = self._directoryTree.root;
+      self._rootStorage = new Storage( self, rootEntry );
+      self._shortStreamSecIds = self._SAT.getSecIdChain( rootEntry.secId );
+
+      callback();
+   });
+};
+
+OleCompoundDoc.prototype._getFileOffsetForSec = function( secId ) {
+   var secSize = this._header.secSize;
+   return this._skipBytes + (secId + 1) * secSize;  // Skip past the header sector
+};
+
+OleCompoundDoc.prototype._getFileOffsetForShortSec = function( shortSecId ) {
+   var shortSecSize = this._header.shortSecSize;
+   var shortStreamOffset = shortSecId * shortSecSize;
+
+   var secSize = this._header.secSize;
+   var secIdIndex = Math.floor( shortStreamOffset / secSize );
+   var secOffset = shortStreamOffset % secSize;
+   var secId = this._shortStreamSecIds[secIdIndex];
+
+   return this._getFileOffsetForSec( secId ) + secOffset;
+};
+
+OleCompoundDoc.prototype.storage = function( storageName ) {
+   return this._rootStorage.storage( storageName );
+};
+
+OleCompoundDoc.prototype.stream = function( streamName ) {
+   return this._rootStorage.stream( streamName );
+};
+
+exports.OleCompoundDoc = OleCompoundDoc;
+
+/***/ }),
+
+/***/ 22791:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+// This file is just added for convenience so this repository can be
+// directly checked out into a project's deps folder
+module.exports = __nccwpck_require__(78959);
+
+
+/***/ }),
+
+/***/ 78959:
+/***/ ((module) => {
+
+/*global setTimeout: false, console: false */
+(function () {
+
+    var async = {};
+
+    // global on the server, window in the browser
+    var root = this,
+        previous_async = root.async;
+
+    if ( true && module.exports) {
+        module.exports = async;
+    }
+    else {
+        root.async = async;
+    }
+
+    async.noConflict = function () {
+        root.async = previous_async;
+        return async;
+    };
+
+    //// cross-browser compatiblity functions ////
+
+    var _forEach = function (arr, iterator) {
+        if (arr.forEach) {
+            return arr.forEach(iterator);
+        }
+        for (var i = 0; i < arr.length; i += 1) {
+            iterator(arr[i], i, arr);
+        }
+    };
+
+    var _map = function (arr, iterator) {
+        if (arr.map) {
+            return arr.map(iterator);
+        }
+        var results = [];
+        _forEach(arr, function (x, i, a) {
+            results.push(iterator(x, i, a));
+        });
+        return results;
+    };
+
+    var _reduce = function (arr, iterator, memo) {
+        if (arr.reduce) {
+            return arr.reduce(iterator, memo);
+        }
+        _forEach(arr, function (x, i, a) {
+            memo = iterator(memo, x, i, a);
+        });
+        return memo;
+    };
+
+    var _keys = function (obj) {
+        if (Object.keys) {
+            return Object.keys(obj);
+        }
+        var keys = [];
+        for (var k in obj) {
+            if (obj.hasOwnProperty(k)) {
+                keys.push(k);
+            }
+        }
+        return keys;
+    };
+
+    //// exported async module functions ////
+
+    //// nextTick implementation with browser-compatible fallback ////
+    if (typeof process === 'undefined' || !(process.nextTick)) {
+        async.nextTick = function (fn) {
+            setTimeout(fn, 0);
+        };
+    }
+    else {
+        async.nextTick = process.nextTick;
+    }
+
+    async.forEach = function (arr, iterator, callback) {
+        callback = callback || function () {};
+        if (!arr.length) {
+            return callback();
+        }
+        var completed = 0;
+        _forEach(arr, function (x) {
+            iterator(x, function (err) {
+                if (err) {
+                    callback(err);
+                    callback = function () {};
+                }
+                else {
+                    completed += 1;
+                    if (completed === arr.length) {
+                        callback(null);
+                    }
+                }
+            });
+        });
+    };
+
+    async.forEachSeries = function (arr, iterator, callback) {
+        callback = callback || function () {};
+        if (!arr.length) {
+            return callback();
+        }
+        var completed = 0;
+        var iterate = function () {
+            iterator(arr[completed], function (err) {
+                if (err) {
+                    callback(err);
+                    callback = function () {};
+                }
+                else {
+                    completed += 1;
+                    if (completed === arr.length) {
+                        callback(null);
+                    }
+                    else {
+                        iterate();
+                    }
+                }
+            });
+        };
+        iterate();
+    };
+
+    async.forEachLimit = function (arr, limit, iterator, callback) {
+        callback = callback || function () {};
+        if (!arr.length || limit <= 0) {
+            return callback();
+        }
+        var completed = 0;
+        var started = 0;
+        var running = 0;
+
+        (function replenish () {
+            if (completed === arr.length) {
+                return callback();
+            }
+
+            while (running < limit && started < arr.length) {
+                started += 1;
+                running += 1;
+                iterator(arr[started - 1], function (err) {
+                    if (err) {
+                        callback(err);
+                        callback = function () {};
+                    }
+                    else {
+                        completed += 1;
+                        running -= 1;
+                        if (completed === arr.length) {
+                            callback();
+                        }
+                        else {
+                            replenish();
+                        }
+                    }
+                });
+            }
+        })();
+    };
+
+
+    var doParallel = function (fn) {
+        return function () {
+            var args = Array.prototype.slice.call(arguments);
+            return fn.apply(null, [async.forEach].concat(args));
+        };
+    };
+    var doSeries = function (fn) {
+        return function () {
+            var args = Array.prototype.slice.call(arguments);
+            return fn.apply(null, [async.forEachSeries].concat(args));
+        };
+    };
+
+
+    var _asyncMap = function (eachfn, arr, iterator, callback) {
+        var results = [];
+        arr = _map(arr, function (x, i) {
+            return {index: i, value: x};
+        });
+        eachfn(arr, function (x, callback) {
+            iterator(x.value, function (err, v) {
+                results[x.index] = v;
+                callback(err);
+            });
+        }, function (err) {
+            callback(err, results);
+        });
+    };
+    async.map = doParallel(_asyncMap);
+    async.mapSeries = doSeries(_asyncMap);
+
+
+    // reduce only has a series version, as doing reduce in parallel won't
+    // work in many situations.
+    async.reduce = function (arr, memo, iterator, callback) {
+        async.forEachSeries(arr, function (x, callback) {
+            iterator(memo, x, function (err, v) {
+                memo = v;
+                callback(err);
+            });
+        }, function (err) {
+            callback(err, memo);
+        });
+    };
+    // inject alias
+    async.inject = async.reduce;
+    // foldl alias
+    async.foldl = async.reduce;
+
+    async.reduceRight = function (arr, memo, iterator, callback) {
+        var reversed = _map(arr, function (x) {
+            return x;
+        }).reverse();
+        async.reduce(reversed, memo, iterator, callback);
+    };
+    // foldr alias
+    async.foldr = async.reduceRight;
+
+    var _filter = function (eachfn, arr, iterator, callback) {
+        var results = [];
+        arr = _map(arr, function (x, i) {
+            return {index: i, value: x};
+        });
+        eachfn(arr, function (x, callback) {
+            iterator(x.value, function (v) {
+                if (v) {
+                    results.push(x);
+                }
+                callback();
+            });
+        }, function (err) {
+            callback(_map(results.sort(function (a, b) {
+                return a.index - b.index;
+            }), function (x) {
+                return x.value;
+            }));
+        });
+    };
+    async.filter = doParallel(_filter);
+    async.filterSeries = doSeries(_filter);
+    // select alias
+    async.select = async.filter;
+    async.selectSeries = async.filterSeries;
+
+    var _reject = function (eachfn, arr, iterator, callback) {
+        var results = [];
+        arr = _map(arr, function (x, i) {
+            return {index: i, value: x};
+        });
+        eachfn(arr, function (x, callback) {
+            iterator(x.value, function (v) {
+                if (!v) {
+                    results.push(x);
+                }
+                callback();
+            });
+        }, function (err) {
+            callback(_map(results.sort(function (a, b) {
+                return a.index - b.index;
+            }), function (x) {
+                return x.value;
+            }));
+        });
+    };
+    async.reject = doParallel(_reject);
+    async.rejectSeries = doSeries(_reject);
+
+    var _detect = function (eachfn, arr, iterator, main_callback) {
+        eachfn(arr, function (x, callback) {
+            iterator(x, function (result) {
+                if (result) {
+                    main_callback(x);
+                    main_callback = function () {};
+                }
+                else {
+                    callback();
+                }
+            });
+        }, function (err) {
+            main_callback();
+        });
+    };
+    async.detect = doParallel(_detect);
+    async.detectSeries = doSeries(_detect);
+
+    async.some = function (arr, iterator, main_callback) {
+        async.forEach(arr, function (x, callback) {
+            iterator(x, function (v) {
+                if (v) {
+                    main_callback(true);
+                    main_callback = function () {};
+                }
+                callback();
+            });
+        }, function (err) {
+            main_callback(false);
+        });
+    };
+    // any alias
+    async.any = async.some;
+
+    async.every = function (arr, iterator, main_callback) {
+        async.forEach(arr, function (x, callback) {
+            iterator(x, function (v) {
+                if (!v) {
+                    main_callback(false);
+                    main_callback = function () {};
+                }
+                callback();
+            });
+        }, function (err) {
+            main_callback(true);
+        });
+    };
+    // all alias
+    async.all = async.every;
+
+    async.sortBy = function (arr, iterator, callback) {
+        async.map(arr, function (x, callback) {
+            iterator(x, function (err, criteria) {
+                if (err) {
+                    callback(err);
+                }
+                else {
+                    callback(null, {value: x, criteria: criteria});
+                }
+            });
+        }, function (err, results) {
+            if (err) {
+                return callback(err);
+            }
+            else {
+                var fn = function (left, right) {
+                    var a = left.criteria, b = right.criteria;
+                    return a < b ? -1 : a > b ? 1 : 0;
+                };
+                callback(null, _map(results.sort(fn), function (x) {
+                    return x.value;
+                }));
+            }
+        });
+    };
+
+    async.auto = function (tasks, callback) {
+        callback = callback || function () {};
+        var keys = _keys(tasks);
+        if (!keys.length) {
+            return callback(null);
+        }
+
+        var results = {};
+
+        var listeners = [];
+        var addListener = function (fn) {
+            listeners.unshift(fn);
+        };
+        var removeListener = function (fn) {
+            for (var i = 0; i < listeners.length; i += 1) {
+                if (listeners[i] === fn) {
+                    listeners.splice(i, 1);
+                    return;
+                }
+            }
+        };
+        var taskComplete = function () {
+            _forEach(listeners.slice(0), function (fn) {
+                fn();
+            });
+        };
+
+        addListener(function () {
+            if (_keys(results).length === keys.length) {
+                callback(null, results);
+                callback = function () {};
+            }
+        });
+
+        _forEach(keys, function (k) {
+            var task = (tasks[k] instanceof Function) ? [tasks[k]]: tasks[k];
+            var taskCallback = function (err) {
+                if (err) {
+                    callback(err);
+                    // stop subsequent errors hitting callback multiple times
+                    callback = function () {};
+                }
+                else {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    if (args.length <= 1) {
+                        args = args[0];
+                    }
+                    results[k] = args;
+                    taskComplete();
+                }
+            };
+            var requires = task.slice(0, Math.abs(task.length - 1)) || [];
+            var ready = function () {
+                return _reduce(requires, function (a, x) {
+                    return (a && results.hasOwnProperty(x));
+                }, true) && !results.hasOwnProperty(k);
+            };
+            if (ready()) {
+                task[task.length - 1](taskCallback, results);
+            }
+            else {
+                var listener = function () {
+                    if (ready()) {
+                        removeListener(listener);
+                        task[task.length - 1](taskCallback, results);
+                    }
+                };
+                addListener(listener);
+            }
+        });
+    };
+
+    async.waterfall = function (tasks, callback) {
+        callback = callback || function () {};
+        if (!tasks.length) {
+            return callback();
+        }
+        var wrapIterator = function (iterator) {
+            return function (err) {
+                if (err) {
+                    callback(err);
+                    callback = function () {};
+                }
+                else {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    var next = iterator.next();
+                    if (next) {
+                        args.push(wrapIterator(next));
+                    }
+                    else {
+                        args.push(callback);
+                    }
+                    async.nextTick(function () {
+                        iterator.apply(null, args);
+                    });
+                }
+            };
+        };
+        wrapIterator(async.iterator(tasks))();
+    };
+
+    async.parallel = function (tasks, callback) {
+        callback = callback || function () {};
+        if (tasks.constructor === Array) {
+            async.map(tasks, function (fn, callback) {
+                if (fn) {
+                    fn(function (err) {
+                        var args = Array.prototype.slice.call(arguments, 1);
+                        if (args.length <= 1) {
+                            args = args[0];
+                        }
+                        callback.call(null, err, args);
+                    });
+                }
+            }, callback);
+        }
+        else {
+            var results = {};
+            async.forEach(_keys(tasks), function (k, callback) {
+                tasks[k](function (err) {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    if (args.length <= 1) {
+                        args = args[0];
+                    }
+                    results[k] = args;
+                    callback(err);
+                });
+            }, function (err) {
+                callback(err, results);
+            });
+        }
+    };
+
+    async.series = function (tasks, callback) {
+        callback = callback || function () {};
+        if (tasks.constructor === Array) {
+            async.mapSeries(tasks, function (fn, callback) {
+                if (fn) {
+                    fn(function (err) {
+                        var args = Array.prototype.slice.call(arguments, 1);
+                        if (args.length <= 1) {
+                            args = args[0];
+                        }
+                        callback.call(null, err, args);
+                    });
+                }
+            }, callback);
+        }
+        else {
+            var results = {};
+            async.forEachSeries(_keys(tasks), function (k, callback) {
+                tasks[k](function (err) {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    if (args.length <= 1) {
+                        args = args[0];
+                    }
+                    results[k] = args;
+                    callback(err);
+                });
+            }, function (err) {
+                callback(err, results);
+            });
+        }
+    };
+
+    async.iterator = function (tasks) {
+        var makeCallback = function (index) {
+            var fn = function () {
+                if (tasks.length) {
+                    tasks[index].apply(null, arguments);
+                }
+                return fn.next();
+            };
+            fn.next = function () {
+                return (index < tasks.length - 1) ? makeCallback(index + 1): null;
+            };
+            return fn;
+        };
+        return makeCallback(0);
+    };
+
+    async.apply = function (fn) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        return function () {
+            return fn.apply(
+                null, args.concat(Array.prototype.slice.call(arguments))
+            );
+        };
+    };
+
+    var _concat = function (eachfn, arr, fn, callback) {
+        var r = [];
+        eachfn(arr, function (x, cb) {
+            fn(x, function (err, y) {
+                r = r.concat(y || []);
+                cb(err);
+            });
+        }, function (err) {
+            callback(err, r);
+        });
+    };
+    async.concat = doParallel(_concat);
+    async.concatSeries = doSeries(_concat);
+
+    async.whilst = function (test, iterator, callback) {
+        if (test()) {
+            iterator(function (err) {
+                if (err) {
+                    return callback(err);
+                }
+                async.whilst(test, iterator, callback);
+            });
+        }
+        else {
+            callback();
+        }
+    };
+
+    async.until = function (test, iterator, callback) {
+        if (!test()) {
+            iterator(function (err) {
+                if (err) {
+                    return callback(err);
+                }
+                async.until(test, iterator, callback);
+            });
+        }
+        else {
+            callback();
+        }
+    };
+
+    async.queue = function (worker, concurrency) {
+        var workers = 0;
+        var q = {
+            tasks: [],
+            concurrency: concurrency,
+            saturated: null,
+            empty: null,
+            drain: null,
+            push: function (data, callback) {
+                if(data.constructor !== Array) {
+                    data = [data];
+                }
+                _forEach(data, function(task) {
+                    q.tasks.push({
+                        data: task,
+                        callback: typeof callback === 'function' ? callback : null
+                    });
+                    if (q.saturated && q.tasks.length == concurrency) {
+                        q.saturated();
+                    }
+                    async.nextTick(q.process);
+                });
+            },
+            process: function () {
+                if (workers < q.concurrency && q.tasks.length) {
+                    var task = q.tasks.shift();
+                    if(q.empty && q.tasks.length == 0) q.empty();
+                    workers += 1;
+                    worker(task.data, function () {
+                        workers -= 1;
+                        if (task.callback) {
+                            task.callback.apply(task, arguments);
+                        }
+                        if(q.drain && q.tasks.length + workers == 0) q.drain();
+                        q.process();
+                    });
+                }
+            },
+            length: function () {
+                return q.tasks.length;
+            },
+            running: function () {
+                return workers;
+            }
+        };
+        return q;
+    };
+
+    var _console_fn = function (name) {
+        return function (fn) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            fn.apply(null, args.concat([function (err) {
+                var args = Array.prototype.slice.call(arguments, 1);
+                if (typeof console !== 'undefined') {
+                    if (err) {
+                        if (console.error) {
+                            console.error(err);
+                        }
+                    }
+                    else if (console[name]) {
+                        _forEach(args, function (x) {
+                            console[name](x);
+                        });
+                    }
+                }
+            }]));
+        };
+    };
+    async.log = _console_fn('log');
+    async.dir = _console_fn('dir');
+    /*async.info = _console_fn('info');
+    async.warn = _console_fn('warn');
+    async.error = _console_fn('error');*/
+
+    async.memoize = function (fn, hasher) {
+        var memo = {};
+        var queues = {};
+        hasher = hasher || function (x) {
+            return x;
+        };
+        var memoized = function () {
+            var args = Array.prototype.slice.call(arguments);
+            var callback = args.pop();
+            var key = hasher.apply(null, args);
+            if (key in memo) {
+                callback.apply(null, memo[key]);
+            }
+            else if (key in queues) {
+                queues[key].push(callback);
+            }
+            else {
+                queues[key] = [callback];
+                fn.apply(null, args.concat([function () {
+                    memo[key] = arguments;
+                    var q = queues[key];
+                    delete queues[key];
+                    for (var i = 0, l = q.length; i < l; i++) {
+                      q[i].apply(null, arguments);
+                    }
+                }]));
+            }
+        };
+        memoized.unmemoized = fn;
+        return memoized;
+    };
+
+    async.unmemoize = function (fn) {
+      return function () {
+        return (fn.unmemoized || fn).apply(null, arguments);
+      };
+    };
+
+}());
+
+
+/***/ }),
+
 /***/ 55560:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -33153,6 +35013,16 @@ function onceStrict (fn) {
   f.called = false
   return f
 }
+
+
+/***/ }),
+
+/***/ 69705:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+//through@2 handles this by default!
+module.exports = __nccwpck_require__(50461)
+
 
 
 /***/ }),
@@ -41392,6 +43262,72 @@ function mixinProperties (obj, proto) {
 
 /***/ }),
 
+/***/ 73764:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+//filter will reemit the data if cb(err,pass) pass is truthy
+
+// reduce is more tricky
+// maybe we want to group the reductions or emit progress updates occasionally
+// the most basic reduce just emits one 'data' event after it has recieved 'end'
+
+
+var through = __nccwpck_require__(50461)
+var Decoder = (__nccwpck_require__(13193).StringDecoder)
+
+module.exports = split
+
+//TODO pass in a function to map across the lines.
+
+function split (matcher, mapper) {
+  var decoder = new Decoder()
+  var soFar = ''
+  if('function' === typeof matcher)
+    mapper = matcher, matcher = null
+  if (!matcher)
+    matcher = /\r?\n/
+
+  function emit(stream, piece) {
+    if(mapper) {
+      try {
+        piece = mapper(piece)
+      }
+      catch (err) {
+        return stream.emit('error', err)
+      }
+      if('undefined' !== typeof piece)
+        stream.queue(piece)
+    }
+    else
+      stream.queue(piece)
+  }
+
+  function next (stream, buffer) { 
+    var pieces = (soFar + buffer).split(matcher)
+    soFar = pieces.pop()
+
+    for (var i = 0; i < pieces.length; i++) {
+      var piece = pieces[i]
+      emit(stream, piece)
+    }
+  }
+
+  return through(function (b) {
+    next(this, decoder.write(b))
+  },
+  function () {
+    if(decoder.end) 
+      next(this, decoder.end())
+    if(soFar != null)
+      emit(this, soFar)
+    this.queue(null)
+  })
+}
+
+
+
+/***/ }),
+
 /***/ 70696:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -48559,6 +50495,52 @@ function status (code) {
 
 /***/ }),
 
+/***/ 4358:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+var duplexer = __nccwpck_require__(10521)
+
+module.exports = function () {
+
+  var streams = [].slice.call(arguments)
+    , first = streams[0]
+    , last = streams[streams.length - 1]
+    , thepipe = duplexer(first, last)
+
+  if(streams.length == 1)
+    return streams[0]
+  else if (!streams.length)
+    throw new Error('connect called with empty args')
+
+  //pipe all the streams together
+
+  function recurse (streams) {
+    if(streams.length < 2)
+      return
+    streams[0].pipe(streams[1])
+    recurse(streams.slice(1))  
+  }
+  
+  recurse(streams)
+ 
+  function onerror () {
+    var args = [].slice.call(arguments)
+    args.unshift('error')
+    thepipe.emit.apply(thepipe, args)
+  }
+  
+  //es.duplex already reemits the error from the first and last stream.
+  //add a listener for the inner streams in the pipeline.
+  for(var i = 1; i < streams.length - 1; i ++)
+    streams[i].on('error', onerror)
+
+  return thepipe
+}
+
+
+
+/***/ }),
+
 /***/ 94431:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
@@ -51728,6 +53710,121 @@ module.exports = {
 	stdout: translateLevel(supportsColor(true, tty.isatty(1))),
 	stderr: translateLevel(supportsColor(true, tty.isatty(2)))
 };
+
+
+/***/ }),
+
+/***/ 50461:
+/***/ ((module, exports, __nccwpck_require__) => {
+
+var Stream = __nccwpck_require__(2203)
+
+// through
+//
+// a stream that does nothing but re-emit the input.
+// useful for aggregating a series of changing but not ending streams into one stream)
+
+exports = module.exports = through
+through.through = through
+
+//create a readable writable stream.
+
+function through (write, end, opts) {
+  write = write || function (data) { this.queue(data) }
+  end = end || function () { this.queue(null) }
+
+  var ended = false, destroyed = false, buffer = [], _ended = false
+  var stream = new Stream()
+  stream.readable = stream.writable = true
+  stream.paused = false
+
+//  stream.autoPause   = !(opts && opts.autoPause   === false)
+  stream.autoDestroy = !(opts && opts.autoDestroy === false)
+
+  stream.write = function (data) {
+    write.call(this, data)
+    return !stream.paused
+  }
+
+  function drain() {
+    while(buffer.length && !stream.paused) {
+      var data = buffer.shift()
+      if(null === data)
+        return stream.emit('end')
+      else
+        stream.emit('data', data)
+    }
+  }
+
+  stream.queue = stream.push = function (data) {
+//    console.error(ended)
+    if(_ended) return stream
+    if(data === null) _ended = true
+    buffer.push(data)
+    drain()
+    return stream
+  }
+
+  //this will be registered as the first 'end' listener
+  //must call destroy next tick, to make sure we're after any
+  //stream piped from here.
+  //this is only a problem if end is not emitted synchronously.
+  //a nicer way to do this is to make sure this is the last listener for 'end'
+
+  stream.on('end', function () {
+    stream.readable = false
+    if(!stream.writable && stream.autoDestroy)
+      process.nextTick(function () {
+        stream.destroy()
+      })
+  })
+
+  function _end () {
+    stream.writable = false
+    end.call(stream)
+    if(!stream.readable && stream.autoDestroy)
+      stream.destroy()
+  }
+
+  stream.end = function (data) {
+    if(ended) return
+    ended = true
+    if(arguments.length) stream.write(data)
+    _end() // will emit or queue
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = true
+    ended = true
+    buffer.length = 0
+    stream.writable = stream.readable = false
+    stream.emit('close')
+    return stream
+  }
+
+  stream.pause = function () {
+    if(stream.paused) return
+    stream.paused = true
+    return stream
+  }
+
+  stream.resume = function () {
+    if(stream.paused) {
+      stream.paused = false
+      stream.emit('resume')
+    }
+    drain()
+    //may have become paused again,
+    //as drain emits 'data'.
+    if(!stream.paused)
+      stream.emit('drain')
+    return stream
+  }
+  return stream
+}
+
 
 
 /***/ }),
@@ -57665,6 +59762,1237 @@ nacl.setPRNG = function(fn) {
 })();
 
 })( true && module.exports ? module.exports : (self.nacl = self.nacl || {}));
+
+
+/***/ }),
+
+/***/ 78190:
+/***/ (function(module, exports) {
+
+//     Underscore.js 1.4.4
+//     http://underscorejs.org
+//     (c) 2009-2013 Jeremy Ashkenas, DocumentCloud Inc.
+//     Underscore may be freely distributed under the MIT license.
+
+(function() {
+
+  // Baseline setup
+  // --------------
+
+  // Establish the root object, `window` in the browser, or `global` on the server.
+  var root = this;
+
+  // Save the previous value of the `_` variable.
+  var previousUnderscore = root._;
+
+  // Establish the object that gets returned to break out of a loop iteration.
+  var breaker = {};
+
+  // Save bytes in the minified (but not gzipped) version:
+  var ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Function.prototype;
+
+  // Create quick reference variables for speed access to core prototypes.
+  var push             = ArrayProto.push,
+      slice            = ArrayProto.slice,
+      concat           = ArrayProto.concat,
+      toString         = ObjProto.toString,
+      hasOwnProperty   = ObjProto.hasOwnProperty;
+
+  // All **ECMAScript 5** native function implementations that we hope to use
+  // are declared here.
+  var
+    nativeForEach      = ArrayProto.forEach,
+    nativeMap          = ArrayProto.map,
+    nativeReduce       = ArrayProto.reduce,
+    nativeReduceRight  = ArrayProto.reduceRight,
+    nativeFilter       = ArrayProto.filter,
+    nativeEvery        = ArrayProto.every,
+    nativeSome         = ArrayProto.some,
+    nativeIndexOf      = ArrayProto.indexOf,
+    nativeLastIndexOf  = ArrayProto.lastIndexOf,
+    nativeIsArray      = Array.isArray,
+    nativeKeys         = Object.keys,
+    nativeBind         = FuncProto.bind;
+
+  // Create a safe reference to the Underscore object for use below.
+  var _ = function(obj) {
+    if (obj instanceof _) return obj;
+    if (!(this instanceof _)) return new _(obj);
+    this._wrapped = obj;
+  };
+
+  // Export the Underscore object for **Node.js**, with
+  // backwards-compatibility for the old `require()` API. If we're in
+  // the browser, add `_` as a global object via a string identifier,
+  // for Closure Compiler "advanced" mode.
+  if (true) {
+    if ( true && module.exports) {
+      exports = module.exports = _;
+    }
+    exports._ = _;
+  } else {}
+
+  // Current version.
+  _.VERSION = '1.4.4';
+
+  // Collection Functions
+  // --------------------
+
+  // The cornerstone, an `each` implementation, aka `forEach`.
+  // Handles objects with the built-in `forEach`, arrays, and raw objects.
+  // Delegates to **ECMAScript 5**'s native `forEach` if available.
+  var each = _.each = _.forEach = function(obj, iterator, context) {
+    if (obj == null) return;
+    if (nativeForEach && obj.forEach === nativeForEach) {
+      obj.forEach(iterator, context);
+    } else if (obj.length === +obj.length) {
+      for (var i = 0, l = obj.length; i < l; i++) {
+        if (iterator.call(context, obj[i], i, obj) === breaker) return;
+      }
+    } else {
+      for (var key in obj) {
+        if (_.has(obj, key)) {
+          if (iterator.call(context, obj[key], key, obj) === breaker) return;
+        }
+      }
+    }
+  };
+
+  // Return the results of applying the iterator to each element.
+  // Delegates to **ECMAScript 5**'s native `map` if available.
+  _.map = _.collect = function(obj, iterator, context) {
+    var results = [];
+    if (obj == null) return results;
+    if (nativeMap && obj.map === nativeMap) return obj.map(iterator, context);
+    each(obj, function(value, index, list) {
+      results[results.length] = iterator.call(context, value, index, list);
+    });
+    return results;
+  };
+
+  var reduceError = 'Reduce of empty array with no initial value';
+
+  // **Reduce** builds up a single result from a list of values, aka `inject`,
+  // or `foldl`. Delegates to **ECMAScript 5**'s native `reduce` if available.
+  _.reduce = _.foldl = _.inject = function(obj, iterator, memo, context) {
+    var initial = arguments.length > 2;
+    if (obj == null) obj = [];
+    if (nativeReduce && obj.reduce === nativeReduce) {
+      if (context) iterator = _.bind(iterator, context);
+      return initial ? obj.reduce(iterator, memo) : obj.reduce(iterator);
+    }
+    each(obj, function(value, index, list) {
+      if (!initial) {
+        memo = value;
+        initial = true;
+      } else {
+        memo = iterator.call(context, memo, value, index, list);
+      }
+    });
+    if (!initial) throw new TypeError(reduceError);
+    return memo;
+  };
+
+  // The right-associative version of reduce, also known as `foldr`.
+  // Delegates to **ECMAScript 5**'s native `reduceRight` if available.
+  _.reduceRight = _.foldr = function(obj, iterator, memo, context) {
+    var initial = arguments.length > 2;
+    if (obj == null) obj = [];
+    if (nativeReduceRight && obj.reduceRight === nativeReduceRight) {
+      if (context) iterator = _.bind(iterator, context);
+      return initial ? obj.reduceRight(iterator, memo) : obj.reduceRight(iterator);
+    }
+    var length = obj.length;
+    if (length !== +length) {
+      var keys = _.keys(obj);
+      length = keys.length;
+    }
+    each(obj, function(value, index, list) {
+      index = keys ? keys[--length] : --length;
+      if (!initial) {
+        memo = obj[index];
+        initial = true;
+      } else {
+        memo = iterator.call(context, memo, obj[index], index, list);
+      }
+    });
+    if (!initial) throw new TypeError(reduceError);
+    return memo;
+  };
+
+  // Return the first value which passes a truth test. Aliased as `detect`.
+  _.find = _.detect = function(obj, iterator, context) {
+    var result;
+    any(obj, function(value, index, list) {
+      if (iterator.call(context, value, index, list)) {
+        result = value;
+        return true;
+      }
+    });
+    return result;
+  };
+
+  // Return all the elements that pass a truth test.
+  // Delegates to **ECMAScript 5**'s native `filter` if available.
+  // Aliased as `select`.
+  _.filter = _.select = function(obj, iterator, context) {
+    var results = [];
+    if (obj == null) return results;
+    if (nativeFilter && obj.filter === nativeFilter) return obj.filter(iterator, context);
+    each(obj, function(value, index, list) {
+      if (iterator.call(context, value, index, list)) results[results.length] = value;
+    });
+    return results;
+  };
+
+  // Return all the elements for which a truth test fails.
+  _.reject = function(obj, iterator, context) {
+    return _.filter(obj, function(value, index, list) {
+      return !iterator.call(context, value, index, list);
+    }, context);
+  };
+
+  // Determine whether all of the elements match a truth test.
+  // Delegates to **ECMAScript 5**'s native `every` if available.
+  // Aliased as `all`.
+  _.every = _.all = function(obj, iterator, context) {
+    iterator || (iterator = _.identity);
+    var result = true;
+    if (obj == null) return result;
+    if (nativeEvery && obj.every === nativeEvery) return obj.every(iterator, context);
+    each(obj, function(value, index, list) {
+      if (!(result = result && iterator.call(context, value, index, list))) return breaker;
+    });
+    return !!result;
+  };
+
+  // Determine if at least one element in the object matches a truth test.
+  // Delegates to **ECMAScript 5**'s native `some` if available.
+  // Aliased as `any`.
+  var any = _.some = _.any = function(obj, iterator, context) {
+    iterator || (iterator = _.identity);
+    var result = false;
+    if (obj == null) return result;
+    if (nativeSome && obj.some === nativeSome) return obj.some(iterator, context);
+    each(obj, function(value, index, list) {
+      if (result || (result = iterator.call(context, value, index, list))) return breaker;
+    });
+    return !!result;
+  };
+
+  // Determine if the array or object contains a given value (using `===`).
+  // Aliased as `include`.
+  _.contains = _.include = function(obj, target) {
+    if (obj == null) return false;
+    if (nativeIndexOf && obj.indexOf === nativeIndexOf) return obj.indexOf(target) != -1;
+    return any(obj, function(value) {
+      return value === target;
+    });
+  };
+
+  // Invoke a method (with arguments) on every item in a collection.
+  _.invoke = function(obj, method) {
+    var args = slice.call(arguments, 2);
+    var isFunc = _.isFunction(method);
+    return _.map(obj, function(value) {
+      return (isFunc ? method : value[method]).apply(value, args);
+    });
+  };
+
+  // Convenience version of a common use case of `map`: fetching a property.
+  _.pluck = function(obj, key) {
+    return _.map(obj, function(value){ return value[key]; });
+  };
+
+  // Convenience version of a common use case of `filter`: selecting only objects
+  // containing specific `key:value` pairs.
+  _.where = function(obj, attrs, first) {
+    if (_.isEmpty(attrs)) return first ? null : [];
+    return _[first ? 'find' : 'filter'](obj, function(value) {
+      for (var key in attrs) {
+        if (attrs[key] !== value[key]) return false;
+      }
+      return true;
+    });
+  };
+
+  // Convenience version of a common use case of `find`: getting the first object
+  // containing specific `key:value` pairs.
+  _.findWhere = function(obj, attrs) {
+    return _.where(obj, attrs, true);
+  };
+
+  // Return the maximum element or (element-based computation).
+  // Can't optimize arrays of integers longer than 65,535 elements.
+  // See: https://bugs.webkit.org/show_bug.cgi?id=80797
+  _.max = function(obj, iterator, context) {
+    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
+      return Math.max.apply(Math, obj);
+    }
+    if (!iterator && _.isEmpty(obj)) return -Infinity;
+    var result = {computed : -Infinity, value: -Infinity};
+    each(obj, function(value, index, list) {
+      var computed = iterator ? iterator.call(context, value, index, list) : value;
+      computed >= result.computed && (result = {value : value, computed : computed});
+    });
+    return result.value;
+  };
+
+  // Return the minimum element (or element-based computation).
+  _.min = function(obj, iterator, context) {
+    if (!iterator && _.isArray(obj) && obj[0] === +obj[0] && obj.length < 65535) {
+      return Math.min.apply(Math, obj);
+    }
+    if (!iterator && _.isEmpty(obj)) return Infinity;
+    var result = {computed : Infinity, value: Infinity};
+    each(obj, function(value, index, list) {
+      var computed = iterator ? iterator.call(context, value, index, list) : value;
+      computed < result.computed && (result = {value : value, computed : computed});
+    });
+    return result.value;
+  };
+
+  // Shuffle an array.
+  _.shuffle = function(obj) {
+    var rand;
+    var index = 0;
+    var shuffled = [];
+    each(obj, function(value) {
+      rand = _.random(index++);
+      shuffled[index - 1] = shuffled[rand];
+      shuffled[rand] = value;
+    });
+    return shuffled;
+  };
+
+  // An internal function to generate lookup iterators.
+  var lookupIterator = function(value) {
+    return _.isFunction(value) ? value : function(obj){ return obj[value]; };
+  };
+
+  // Sort the object's values by a criterion produced by an iterator.
+  _.sortBy = function(obj, value, context) {
+    var iterator = lookupIterator(value);
+    return _.pluck(_.map(obj, function(value, index, list) {
+      return {
+        value : value,
+        index : index,
+        criteria : iterator.call(context, value, index, list)
+      };
+    }).sort(function(left, right) {
+      var a = left.criteria;
+      var b = right.criteria;
+      if (a !== b) {
+        if (a > b || a === void 0) return 1;
+        if (a < b || b === void 0) return -1;
+      }
+      return left.index < right.index ? -1 : 1;
+    }), 'value');
+  };
+
+  // An internal function used for aggregate "group by" operations.
+  var group = function(obj, value, context, behavior) {
+    var result = {};
+    var iterator = lookupIterator(value || _.identity);
+    each(obj, function(value, index) {
+      var key = iterator.call(context, value, index, obj);
+      behavior(result, key, value);
+    });
+    return result;
+  };
+
+  // Groups the object's values by a criterion. Pass either a string attribute
+  // to group by, or a function that returns the criterion.
+  _.groupBy = function(obj, value, context) {
+    return group(obj, value, context, function(result, key, value) {
+      (_.has(result, key) ? result[key] : (result[key] = [])).push(value);
+    });
+  };
+
+  // Counts instances of an object that group by a certain criterion. Pass
+  // either a string attribute to count by, or a function that returns the
+  // criterion.
+  _.countBy = function(obj, value, context) {
+    return group(obj, value, context, function(result, key) {
+      if (!_.has(result, key)) result[key] = 0;
+      result[key]++;
+    });
+  };
+
+  // Use a comparator function to figure out the smallest index at which
+  // an object should be inserted so as to maintain order. Uses binary search.
+  _.sortedIndex = function(array, obj, iterator, context) {
+    iterator = iterator == null ? _.identity : lookupIterator(iterator);
+    var value = iterator.call(context, obj);
+    var low = 0, high = array.length;
+    while (low < high) {
+      var mid = (low + high) >>> 1;
+      iterator.call(context, array[mid]) < value ? low = mid + 1 : high = mid;
+    }
+    return low;
+  };
+
+  // Safely convert anything iterable into a real, live array.
+  _.toArray = function(obj) {
+    if (!obj) return [];
+    if (_.isArray(obj)) return slice.call(obj);
+    if (obj.length === +obj.length) return _.map(obj, _.identity);
+    return _.values(obj);
+  };
+
+  // Return the number of elements in an object.
+  _.size = function(obj) {
+    if (obj == null) return 0;
+    return (obj.length === +obj.length) ? obj.length : _.keys(obj).length;
+  };
+
+  // Array Functions
+  // ---------------
+
+  // Get the first element of an array. Passing **n** will return the first N
+  // values in the array. Aliased as `head` and `take`. The **guard** check
+  // allows it to work with `_.map`.
+  _.first = _.head = _.take = function(array, n, guard) {
+    if (array == null) return void 0;
+    return (n != null) && !guard ? slice.call(array, 0, n) : array[0];
+  };
+
+  // Returns everything but the last entry of the array. Especially useful on
+  // the arguments object. Passing **n** will return all the values in
+  // the array, excluding the last N. The **guard** check allows it to work with
+  // `_.map`.
+  _.initial = function(array, n, guard) {
+    return slice.call(array, 0, array.length - ((n == null) || guard ? 1 : n));
+  };
+
+  // Get the last element of an array. Passing **n** will return the last N
+  // values in the array. The **guard** check allows it to work with `_.map`.
+  _.last = function(array, n, guard) {
+    if (array == null) return void 0;
+    if ((n != null) && !guard) {
+      return slice.call(array, Math.max(array.length - n, 0));
+    } else {
+      return array[array.length - 1];
+    }
+  };
+
+  // Returns everything but the first entry of the array. Aliased as `tail` and `drop`.
+  // Especially useful on the arguments object. Passing an **n** will return
+  // the rest N values in the array. The **guard**
+  // check allows it to work with `_.map`.
+  _.rest = _.tail = _.drop = function(array, n, guard) {
+    return slice.call(array, (n == null) || guard ? 1 : n);
+  };
+
+  // Trim out all falsy values from an array.
+  _.compact = function(array) {
+    return _.filter(array, _.identity);
+  };
+
+  // Internal implementation of a recursive `flatten` function.
+  var flatten = function(input, shallow, output) {
+    each(input, function(value) {
+      if (_.isArray(value)) {
+        shallow ? push.apply(output, value) : flatten(value, shallow, output);
+      } else {
+        output.push(value);
+      }
+    });
+    return output;
+  };
+
+  // Return a completely flattened version of an array.
+  _.flatten = function(array, shallow) {
+    return flatten(array, shallow, []);
+  };
+
+  // Return a version of the array that does not contain the specified value(s).
+  _.without = function(array) {
+    return _.difference(array, slice.call(arguments, 1));
+  };
+
+  // Produce a duplicate-free version of the array. If the array has already
+  // been sorted, you have the option of using a faster algorithm.
+  // Aliased as `unique`.
+  _.uniq = _.unique = function(array, isSorted, iterator, context) {
+    if (_.isFunction(isSorted)) {
+      context = iterator;
+      iterator = isSorted;
+      isSorted = false;
+    }
+    var initial = iterator ? _.map(array, iterator, context) : array;
+    var results = [];
+    var seen = [];
+    each(initial, function(value, index) {
+      if (isSorted ? (!index || seen[seen.length - 1] !== value) : !_.contains(seen, value)) {
+        seen.push(value);
+        results.push(array[index]);
+      }
+    });
+    return results;
+  };
+
+  // Produce an array that contains the union: each distinct element from all of
+  // the passed-in arrays.
+  _.union = function() {
+    return _.uniq(concat.apply(ArrayProto, arguments));
+  };
+
+  // Produce an array that contains every item shared between all the
+  // passed-in arrays.
+  _.intersection = function(array) {
+    var rest = slice.call(arguments, 1);
+    return _.filter(_.uniq(array), function(item) {
+      return _.every(rest, function(other) {
+        return _.indexOf(other, item) >= 0;
+      });
+    });
+  };
+
+  // Take the difference between one array and a number of other arrays.
+  // Only the elements present in just the first array will remain.
+  _.difference = function(array) {
+    var rest = concat.apply(ArrayProto, slice.call(arguments, 1));
+    return _.filter(array, function(value){ return !_.contains(rest, value); });
+  };
+
+  // Zip together multiple lists into a single array -- elements that share
+  // an index go together.
+  _.zip = function() {
+    var args = slice.call(arguments);
+    var length = _.max(_.pluck(args, 'length'));
+    var results = new Array(length);
+    for (var i = 0; i < length; i++) {
+      results[i] = _.pluck(args, "" + i);
+    }
+    return results;
+  };
+
+  // Converts lists into objects. Pass either a single array of `[key, value]`
+  // pairs, or two parallel arrays of the same length -- one of keys, and one of
+  // the corresponding values.
+  _.object = function(list, values) {
+    if (list == null) return {};
+    var result = {};
+    for (var i = 0, l = list.length; i < l; i++) {
+      if (values) {
+        result[list[i]] = values[i];
+      } else {
+        result[list[i][0]] = list[i][1];
+      }
+    }
+    return result;
+  };
+
+  // If the browser doesn't supply us with indexOf (I'm looking at you, **MSIE**),
+  // we need this function. Return the position of the first occurrence of an
+  // item in an array, or -1 if the item is not included in the array.
+  // Delegates to **ECMAScript 5**'s native `indexOf` if available.
+  // If the array is large and already in sort order, pass `true`
+  // for **isSorted** to use binary search.
+  _.indexOf = function(array, item, isSorted) {
+    if (array == null) return -1;
+    var i = 0, l = array.length;
+    if (isSorted) {
+      if (typeof isSorted == 'number') {
+        i = (isSorted < 0 ? Math.max(0, l + isSorted) : isSorted);
+      } else {
+        i = _.sortedIndex(array, item);
+        return array[i] === item ? i : -1;
+      }
+    }
+    if (nativeIndexOf && array.indexOf === nativeIndexOf) return array.indexOf(item, isSorted);
+    for (; i < l; i++) if (array[i] === item) return i;
+    return -1;
+  };
+
+  // Delegates to **ECMAScript 5**'s native `lastIndexOf` if available.
+  _.lastIndexOf = function(array, item, from) {
+    if (array == null) return -1;
+    var hasIndex = from != null;
+    if (nativeLastIndexOf && array.lastIndexOf === nativeLastIndexOf) {
+      return hasIndex ? array.lastIndexOf(item, from) : array.lastIndexOf(item);
+    }
+    var i = (hasIndex ? from : array.length);
+    while (i--) if (array[i] === item) return i;
+    return -1;
+  };
+
+  // Generate an integer Array containing an arithmetic progression. A port of
+  // the native Python `range()` function. See
+  // [the Python documentation](http://docs.python.org/library/functions.html#range).
+  _.range = function(start, stop, step) {
+    if (arguments.length <= 1) {
+      stop = start || 0;
+      start = 0;
+    }
+    step = arguments[2] || 1;
+
+    var len = Math.max(Math.ceil((stop - start) / step), 0);
+    var idx = 0;
+    var range = new Array(len);
+
+    while(idx < len) {
+      range[idx++] = start;
+      start += step;
+    }
+
+    return range;
+  };
+
+  // Function (ahem) Functions
+  // ------------------
+
+  // Create a function bound to a given object (assigning `this`, and arguments,
+  // optionally). Delegates to **ECMAScript 5**'s native `Function.bind` if
+  // available.
+  _.bind = function(func, context) {
+    if (func.bind === nativeBind && nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
+    var args = slice.call(arguments, 2);
+    return function() {
+      return func.apply(context, args.concat(slice.call(arguments)));
+    };
+  };
+
+  // Partially apply a function by creating a version that has had some of its
+  // arguments pre-filled, without changing its dynamic `this` context.
+  _.partial = function(func) {
+    var args = slice.call(arguments, 1);
+    return function() {
+      return func.apply(this, args.concat(slice.call(arguments)));
+    };
+  };
+
+  // Bind all of an object's methods to that object. Useful for ensuring that
+  // all callbacks defined on an object belong to it.
+  _.bindAll = function(obj) {
+    var funcs = slice.call(arguments, 1);
+    if (funcs.length === 0) funcs = _.functions(obj);
+    each(funcs, function(f) { obj[f] = _.bind(obj[f], obj); });
+    return obj;
+  };
+
+  // Memoize an expensive function by storing its results.
+  _.memoize = function(func, hasher) {
+    var memo = {};
+    hasher || (hasher = _.identity);
+    return function() {
+      var key = hasher.apply(this, arguments);
+      return _.has(memo, key) ? memo[key] : (memo[key] = func.apply(this, arguments));
+    };
+  };
+
+  // Delays a function for the given number of milliseconds, and then calls
+  // it with the arguments supplied.
+  _.delay = function(func, wait) {
+    var args = slice.call(arguments, 2);
+    return setTimeout(function(){ return func.apply(null, args); }, wait);
+  };
+
+  // Defers a function, scheduling it to run after the current call stack has
+  // cleared.
+  _.defer = function(func) {
+    return _.delay.apply(_, [func, 1].concat(slice.call(arguments, 1)));
+  };
+
+  // Returns a function, that, when invoked, will only be triggered at most once
+  // during a given window of time.
+  _.throttle = function(func, wait) {
+    var context, args, timeout, result;
+    var previous = 0;
+    var later = function() {
+      previous = new Date;
+      timeout = null;
+      result = func.apply(context, args);
+    };
+    return function() {
+      var now = new Date;
+      var remaining = wait - (now - previous);
+      context = this;
+      args = arguments;
+      if (remaining <= 0) {
+        clearTimeout(timeout);
+        timeout = null;
+        previous = now;
+        result = func.apply(context, args);
+      } else if (!timeout) {
+        timeout = setTimeout(later, remaining);
+      }
+      return result;
+    };
+  };
+
+  // Returns a function, that, as long as it continues to be invoked, will not
+  // be triggered. The function will be called after it stops being called for
+  // N milliseconds. If `immediate` is passed, trigger the function on the
+  // leading edge, instead of the trailing.
+  _.debounce = function(func, wait, immediate) {
+    var timeout, result;
+    return function() {
+      var context = this, args = arguments;
+      var later = function() {
+        timeout = null;
+        if (!immediate) result = func.apply(context, args);
+      };
+      var callNow = immediate && !timeout;
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+      if (callNow) result = func.apply(context, args);
+      return result;
+    };
+  };
+
+  // Returns a function that will be executed at most one time, no matter how
+  // often you call it. Useful for lazy initialization.
+  _.once = function(func) {
+    var ran = false, memo;
+    return function() {
+      if (ran) return memo;
+      ran = true;
+      memo = func.apply(this, arguments);
+      func = null;
+      return memo;
+    };
+  };
+
+  // Returns the first function passed as an argument to the second,
+  // allowing you to adjust arguments, run code before and after, and
+  // conditionally execute the original function.
+  _.wrap = function(func, wrapper) {
+    return function() {
+      var args = [func];
+      push.apply(args, arguments);
+      return wrapper.apply(this, args);
+    };
+  };
+
+  // Returns a function that is the composition of a list of functions, each
+  // consuming the return value of the function that follows.
+  _.compose = function() {
+    var funcs = arguments;
+    return function() {
+      var args = arguments;
+      for (var i = funcs.length - 1; i >= 0; i--) {
+        args = [funcs[i].apply(this, args)];
+      }
+      return args[0];
+    };
+  };
+
+  // Returns a function that will only be executed after being called N times.
+  _.after = function(times, func) {
+    if (times <= 0) return func();
+    return function() {
+      if (--times < 1) {
+        return func.apply(this, arguments);
+      }
+    };
+  };
+
+  // Object Functions
+  // ----------------
+
+  // Retrieve the names of an object's properties.
+  // Delegates to **ECMAScript 5**'s native `Object.keys`
+  _.keys = nativeKeys || function(obj) {
+    if (obj !== Object(obj)) throw new TypeError('Invalid object');
+    var keys = [];
+    for (var key in obj) if (_.has(obj, key)) keys[keys.length] = key;
+    return keys;
+  };
+
+  // Retrieve the values of an object's properties.
+  _.values = function(obj) {
+    var values = [];
+    for (var key in obj) if (_.has(obj, key)) values.push(obj[key]);
+    return values;
+  };
+
+  // Convert an object into a list of `[key, value]` pairs.
+  _.pairs = function(obj) {
+    var pairs = [];
+    for (var key in obj) if (_.has(obj, key)) pairs.push([key, obj[key]]);
+    return pairs;
+  };
+
+  // Invert the keys and values of an object. The values must be serializable.
+  _.invert = function(obj) {
+    var result = {};
+    for (var key in obj) if (_.has(obj, key)) result[obj[key]] = key;
+    return result;
+  };
+
+  // Return a sorted list of the function names available on the object.
+  // Aliased as `methods`
+  _.functions = _.methods = function(obj) {
+    var names = [];
+    for (var key in obj) {
+      if (_.isFunction(obj[key])) names.push(key);
+    }
+    return names.sort();
+  };
+
+  // Extend a given object with all the properties in passed-in object(s).
+  _.extend = function(obj) {
+    each(slice.call(arguments, 1), function(source) {
+      if (source) {
+        for (var prop in source) {
+          obj[prop] = source[prop];
+        }
+      }
+    });
+    return obj;
+  };
+
+  // Return a copy of the object only containing the whitelisted properties.
+  _.pick = function(obj) {
+    var copy = {};
+    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
+    each(keys, function(key) {
+      if (key in obj) copy[key] = obj[key];
+    });
+    return copy;
+  };
+
+   // Return a copy of the object without the blacklisted properties.
+  _.omit = function(obj) {
+    var copy = {};
+    var keys = concat.apply(ArrayProto, slice.call(arguments, 1));
+    for (var key in obj) {
+      if (!_.contains(keys, key)) copy[key] = obj[key];
+    }
+    return copy;
+  };
+
+  // Fill in a given object with default properties.
+  _.defaults = function(obj) {
+    each(slice.call(arguments, 1), function(source) {
+      if (source) {
+        for (var prop in source) {
+          if (obj[prop] == null) obj[prop] = source[prop];
+        }
+      }
+    });
+    return obj;
+  };
+
+  // Create a (shallow-cloned) duplicate of an object.
+  _.clone = function(obj) {
+    if (!_.isObject(obj)) return obj;
+    return _.isArray(obj) ? obj.slice() : _.extend({}, obj);
+  };
+
+  // Invokes interceptor with the obj, and then returns obj.
+  // The primary purpose of this method is to "tap into" a method chain, in
+  // order to perform operations on intermediate results within the chain.
+  _.tap = function(obj, interceptor) {
+    interceptor(obj);
+    return obj;
+  };
+
+  // Internal recursive comparison function for `isEqual`.
+  var eq = function(a, b, aStack, bStack) {
+    // Identical objects are equal. `0 === -0`, but they aren't identical.
+    // See the Harmony `egal` proposal: http://wiki.ecmascript.org/doku.php?id=harmony:egal.
+    if (a === b) return a !== 0 || 1 / a == 1 / b;
+    // A strict comparison is necessary because `null == undefined`.
+    if (a == null || b == null) return a === b;
+    // Unwrap any wrapped objects.
+    if (a instanceof _) a = a._wrapped;
+    if (b instanceof _) b = b._wrapped;
+    // Compare `[[Class]]` names.
+    var className = toString.call(a);
+    if (className != toString.call(b)) return false;
+    switch (className) {
+      // Strings, numbers, dates, and booleans are compared by value.
+      case '[object String]':
+        // Primitives and their corresponding object wrappers are equivalent; thus, `"5"` is
+        // equivalent to `new String("5")`.
+        return a == String(b);
+      case '[object Number]':
+        // `NaN`s are equivalent, but non-reflexive. An `egal` comparison is performed for
+        // other numeric values.
+        return a != +a ? b != +b : (a == 0 ? 1 / a == 1 / b : a == +b);
+      case '[object Date]':
+      case '[object Boolean]':
+        // Coerce dates and booleans to numeric primitive values. Dates are compared by their
+        // millisecond representations. Note that invalid dates with millisecond representations
+        // of `NaN` are not equivalent.
+        return +a == +b;
+      // RegExps are compared by their source patterns and flags.
+      case '[object RegExp]':
+        return a.source == b.source &&
+               a.global == b.global &&
+               a.multiline == b.multiline &&
+               a.ignoreCase == b.ignoreCase;
+    }
+    if (typeof a != 'object' || typeof b != 'object') return false;
+    // Assume equality for cyclic structures. The algorithm for detecting cyclic
+    // structures is adapted from ES 5.1 section 15.12.3, abstract operation `JO`.
+    var length = aStack.length;
+    while (length--) {
+      // Linear search. Performance is inversely proportional to the number of
+      // unique nested structures.
+      if (aStack[length] == a) return bStack[length] == b;
+    }
+    // Add the first object to the stack of traversed objects.
+    aStack.push(a);
+    bStack.push(b);
+    var size = 0, result = true;
+    // Recursively compare objects and arrays.
+    if (className == '[object Array]') {
+      // Compare array lengths to determine if a deep comparison is necessary.
+      size = a.length;
+      result = size == b.length;
+      if (result) {
+        // Deep compare the contents, ignoring non-numeric properties.
+        while (size--) {
+          if (!(result = eq(a[size], b[size], aStack, bStack))) break;
+        }
+      }
+    } else {
+      // Objects with different constructors are not equivalent, but `Object`s
+      // from different frames are.
+      var aCtor = a.constructor, bCtor = b.constructor;
+      if (aCtor !== bCtor && !(_.isFunction(aCtor) && (aCtor instanceof aCtor) &&
+                               _.isFunction(bCtor) && (bCtor instanceof bCtor))) {
+        return false;
+      }
+      // Deep compare objects.
+      for (var key in a) {
+        if (_.has(a, key)) {
+          // Count the expected number of properties.
+          size++;
+          // Deep compare each member.
+          if (!(result = _.has(b, key) && eq(a[key], b[key], aStack, bStack))) break;
+        }
+      }
+      // Ensure that both objects contain the same number of properties.
+      if (result) {
+        for (key in b) {
+          if (_.has(b, key) && !(size--)) break;
+        }
+        result = !size;
+      }
+    }
+    // Remove the first object from the stack of traversed objects.
+    aStack.pop();
+    bStack.pop();
+    return result;
+  };
+
+  // Perform a deep comparison to check if two objects are equal.
+  _.isEqual = function(a, b) {
+    return eq(a, b, [], []);
+  };
+
+  // Is a given array, string, or object empty?
+  // An "empty" object has no enumerable own-properties.
+  _.isEmpty = function(obj) {
+    if (obj == null) return true;
+    if (_.isArray(obj) || _.isString(obj)) return obj.length === 0;
+    for (var key in obj) if (_.has(obj, key)) return false;
+    return true;
+  };
+
+  // Is a given value a DOM element?
+  _.isElement = function(obj) {
+    return !!(obj && obj.nodeType === 1);
+  };
+
+  // Is a given value an array?
+  // Delegates to ECMA5's native Array.isArray
+  _.isArray = nativeIsArray || function(obj) {
+    return toString.call(obj) == '[object Array]';
+  };
+
+  // Is a given variable an object?
+  _.isObject = function(obj) {
+    return obj === Object(obj);
+  };
+
+  // Add some isType methods: isArguments, isFunction, isString, isNumber, isDate, isRegExp.
+  each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp'], function(name) {
+    _['is' + name] = function(obj) {
+      return toString.call(obj) == '[object ' + name + ']';
+    };
+  });
+
+  // Define a fallback version of the method in browsers (ahem, IE), where
+  // there isn't any inspectable "Arguments" type.
+  if (!_.isArguments(arguments)) {
+    _.isArguments = function(obj) {
+      return !!(obj && _.has(obj, 'callee'));
+    };
+  }
+
+  // Optimize `isFunction` if appropriate.
+  if (true) {
+    _.isFunction = function(obj) {
+      return typeof obj === 'function';
+    };
+  }
+
+  // Is a given object a finite number?
+  _.isFinite = function(obj) {
+    return isFinite(obj) && !isNaN(parseFloat(obj));
+  };
+
+  // Is the given value `NaN`? (NaN is the only number which does not equal itself).
+  _.isNaN = function(obj) {
+    return _.isNumber(obj) && obj != +obj;
+  };
+
+  // Is a given value a boolean?
+  _.isBoolean = function(obj) {
+    return obj === true || obj === false || toString.call(obj) == '[object Boolean]';
+  };
+
+  // Is a given value equal to null?
+  _.isNull = function(obj) {
+    return obj === null;
+  };
+
+  // Is a given variable undefined?
+  _.isUndefined = function(obj) {
+    return obj === void 0;
+  };
+
+  // Shortcut function for checking if an object has a given property directly
+  // on itself (in other words, not on a prototype).
+  _.has = function(obj, key) {
+    return hasOwnProperty.call(obj, key);
+  };
+
+  // Utility Functions
+  // -----------------
+
+  // Run Underscore.js in *noConflict* mode, returning the `_` variable to its
+  // previous owner. Returns a reference to the Underscore object.
+  _.noConflict = function() {
+    root._ = previousUnderscore;
+    return this;
+  };
+
+  // Keep the identity function around for default iterators.
+  _.identity = function(value) {
+    return value;
+  };
+
+  // Run a function **n** times.
+  _.times = function(n, iterator, context) {
+    var accum = Array(n);
+    for (var i = 0; i < n; i++) accum[i] = iterator.call(context, i);
+    return accum;
+  };
+
+  // Return a random integer between min and max (inclusive).
+  _.random = function(min, max) {
+    if (max == null) {
+      max = min;
+      min = 0;
+    }
+    return min + Math.floor(Math.random() * (max - min + 1));
+  };
+
+  // List of HTML entities for escaping.
+  var entityMap = {
+    escape: {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#x27;',
+      '/': '&#x2F;'
+    }
+  };
+  entityMap.unescape = _.invert(entityMap.escape);
+
+  // Regexes containing the keys and values listed immediately above.
+  var entityRegexes = {
+    escape:   new RegExp('[' + _.keys(entityMap.escape).join('') + ']', 'g'),
+    unescape: new RegExp('(' + _.keys(entityMap.unescape).join('|') + ')', 'g')
+  };
+
+  // Functions for escaping and unescaping strings to/from HTML interpolation.
+  _.each(['escape', 'unescape'], function(method) {
+    _[method] = function(string) {
+      if (string == null) return '';
+      return ('' + string).replace(entityRegexes[method], function(match) {
+        return entityMap[method][match];
+      });
+    };
+  });
+
+  // If the value of the named property is a function then invoke it;
+  // otherwise, return it.
+  _.result = function(object, property) {
+    if (object == null) return null;
+    var value = object[property];
+    return _.isFunction(value) ? value.call(object) : value;
+  };
+
+  // Add your own custom functions to the Underscore object.
+  _.mixin = function(obj) {
+    each(_.functions(obj), function(name){
+      var func = _[name] = obj[name];
+      _.prototype[name] = function() {
+        var args = [this._wrapped];
+        push.apply(args, arguments);
+        return result.call(this, func.apply(_, args));
+      };
+    });
+  };
+
+  // Generate a unique integer id (unique within the entire client session).
+  // Useful for temporary DOM ids.
+  var idCounter = 0;
+  _.uniqueId = function(prefix) {
+    var id = ++idCounter + '';
+    return prefix ? prefix + id : id;
+  };
+
+  // By default, Underscore uses ERB-style template delimiters, change the
+  // following template settings to use alternative delimiters.
+  _.templateSettings = {
+    evaluate    : /<%([\s\S]+?)%>/g,
+    interpolate : /<%=([\s\S]+?)%>/g,
+    escape      : /<%-([\s\S]+?)%>/g
+  };
+
+  // When customizing `templateSettings`, if you don't want to define an
+  // interpolation, evaluation or escaping regex, we need one that is
+  // guaranteed not to match.
+  var noMatch = /(.)^/;
+
+  // Certain characters need to be escaped so that they can be put into a
+  // string literal.
+  var escapes = {
+    "'":      "'",
+    '\\':     '\\',
+    '\r':     'r',
+    '\n':     'n',
+    '\t':     't',
+    '\u2028': 'u2028',
+    '\u2029': 'u2029'
+  };
+
+  var escaper = /\\|'|\r|\n|\t|\u2028|\u2029/g;
+
+  // JavaScript micro-templating, similar to John Resig's implementation.
+  // Underscore templating handles arbitrary delimiters, preserves whitespace,
+  // and correctly escapes quotes within interpolated code.
+  _.template = function(text, data, settings) {
+    var render;
+    settings = _.defaults({}, settings, _.templateSettings);
+
+    // Combine delimiters into one regular expression via alternation.
+    var matcher = new RegExp([
+      (settings.escape || noMatch).source,
+      (settings.interpolate || noMatch).source,
+      (settings.evaluate || noMatch).source
+    ].join('|') + '|$', 'g');
+
+    // Compile the template source, escaping string literals appropriately.
+    var index = 0;
+    var source = "__p+='";
+    text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
+      source += text.slice(index, offset)
+        .replace(escaper, function(match) { return '\\' + escapes[match]; });
+
+      if (escape) {
+        source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
+      }
+      if (interpolate) {
+        source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
+      }
+      if (evaluate) {
+        source += "';\n" + evaluate + "\n__p+='";
+      }
+      index = offset + match.length;
+      return match;
+    });
+    source += "';\n";
+
+    // If a variable is not specified, place data values in local scope.
+    if (!settings.variable) source = 'with(obj||{}){\n' + source + '}\n';
+
+    source = "var __t,__p='',__j=Array.prototype.join," +
+      "print=function(){__p+=__j.call(arguments,'');};\n" +
+      source + "return __p;\n";
+
+    try {
+      render = new Function(settings.variable || 'obj', '_', source);
+    } catch (e) {
+      e.source = source;
+      throw e;
+    }
+
+    if (data) return render(data, _);
+    var template = function(data) {
+      return render.call(this, data, _);
+    };
+
+    // Provide the compiled function source as a convenience for precompilation.
+    template.source = 'function(' + (settings.variable || 'obj') + '){\n' + source + '}';
+
+    return template;
+  };
+
+  // Add a "chain" function, which will delegate to the wrapper.
+  _.chain = function(obj) {
+    return _(obj).chain();
+  };
+
+  // OOP
+  // ---------------
+  // If Underscore is called as a function, it returns a wrapped object that
+  // can be used OO-style. This wrapper holds altered versions of all the
+  // underscore functions. Wrapped objects may be chained.
+
+  // Helper function to continue chaining intermediate results.
+  var result = function(obj) {
+    return this._chain ? _(obj).chain() : obj;
+  };
+
+  // Add all of the Underscore functions to the wrapper object.
+  _.mixin(_);
+
+  // Add all mutator Array functions to the wrapper.
+  each(['pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'], function(name) {
+    var method = ArrayProto[name];
+    _.prototype[name] = function() {
+      var obj = this._wrapped;
+      method.apply(obj, arguments);
+      if ((name == 'shift' || name == 'splice') && obj.length === 0) delete obj[0];
+      return result.call(this, obj);
+    };
+  });
+
+  // Add all accessor Array functions to the wrapper.
+  each(['concat', 'join', 'slice'], function(name) {
+    var method = ArrayProto[name];
+    _.prototype[name] = function() {
+      return result.call(this, method.apply(this._wrapped, arguments));
+    };
+  });
+
+  _.extend(_.prototype, {
+
+    // Start chaining a wrapped Underscore object.
+    chain: function() {
+      this._chain = true;
+      return this;
+    },
+
+    // Extracts the result from a wrapped and chained object.
+    value: function() {
+      return this._wrapped;
+    }
+
+  });
+
+}).call(this);
 
 
 /***/ }),
@@ -82407,6 +85735,2456 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 83503:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+function DOMParser(options){
+	this.options = options ||{locator:{}};
+}
+
+DOMParser.prototype.parseFromString = function(source,mimeType){
+	var options = this.options;
+	var sax =  new XMLReader();
+	var domBuilder = options.domBuilder || new DOMHandler();//contentHandler and LexicalHandler
+	var errorHandler = options.errorHandler;
+	var locator = options.locator;
+	var defaultNSMap = options.xmlns||{};
+	var isHTML = /\/x?html?$/.test(mimeType);//mimeType.toLowerCase().indexOf('html') > -1;
+  	var entityMap = isHTML?htmlEntity.entityMap:{'lt':'<','gt':'>','amp':'&','quot':'"','apos':"'"};
+	if(locator){
+		domBuilder.setDocumentLocator(locator)
+	}
+
+	sax.errorHandler = buildErrorHandler(errorHandler,domBuilder,locator);
+	sax.domBuilder = options.domBuilder || domBuilder;
+	if(isHTML){
+		defaultNSMap['']= 'http://www.w3.org/1999/xhtml';
+	}
+	defaultNSMap.xml = defaultNSMap.xml || 'http://www.w3.org/XML/1998/namespace';
+	if(source && typeof source === 'string'){
+		sax.parse(source,defaultNSMap,entityMap);
+	}else{
+		sax.errorHandler.error("invalid doc source");
+	}
+	return domBuilder.doc;
+}
+function buildErrorHandler(errorImpl,domBuilder,locator){
+	if(!errorImpl){
+		if(domBuilder instanceof DOMHandler){
+			return domBuilder;
+		}
+		errorImpl = domBuilder ;
+	}
+	var errorHandler = {}
+	var isCallback = errorImpl instanceof Function;
+	locator = locator||{}
+	function build(key){
+		var fn = errorImpl[key];
+		if(!fn && isCallback){
+			fn = errorImpl.length == 2?function(msg){errorImpl(key,msg)}:errorImpl;
+		}
+		errorHandler[key] = fn && function(msg){
+			fn('[xmldom '+key+']\t'+msg+_locator(locator));
+		}||function(){};
+	}
+	build('warning');
+	build('error');
+	build('fatalError');
+	return errorHandler;
+}
+
+//console.log('#\n\n\n\n\n\n\n####')
+/**
+ * +ContentHandler+ErrorHandler
+ * +LexicalHandler+EntityResolver2
+ * -DeclHandler-DTDHandler
+ *
+ * DefaultHandler:EntityResolver, DTDHandler, ContentHandler, ErrorHandler
+ * DefaultHandler2:DefaultHandler,LexicalHandler, DeclHandler, EntityResolver2
+ * @link http://www.saxproject.org/apidoc/org/xml/sax/helpers/DefaultHandler.html
+ */
+function DOMHandler() {
+    this.cdata = false;
+}
+function position(locator,node){
+	node.lineNumber = locator.lineNumber;
+	node.columnNumber = locator.columnNumber;
+}
+/**
+ * @see org.xml.sax.ContentHandler#startDocument
+ * @link http://www.saxproject.org/apidoc/org/xml/sax/ContentHandler.html
+ */
+DOMHandler.prototype = {
+	startDocument : function() {
+    	this.doc = new DOMImplementation().createDocument(null, null, null);
+    	if (this.locator) {
+        	this.doc.documentURI = this.locator.systemId;
+    	}
+	},
+	startElement:function(namespaceURI, localName, qName, attrs) {
+		var doc = this.doc;
+	    var el = doc.createElementNS(namespaceURI, qName||localName);
+	    var len = attrs.length;
+	    appendElement(this, el);
+	    this.currentElement = el;
+
+		this.locator && position(this.locator,el)
+	    for (var i = 0 ; i < len; i++) {
+	        var namespaceURI = attrs.getURI(i);
+	        var value = attrs.getValue(i);
+	        var qName = attrs.getQName(i);
+			var attr = doc.createAttributeNS(namespaceURI, qName);
+			this.locator &&position(attrs.getLocator(i),attr);
+			attr.value = attr.nodeValue = value;
+			el.setAttributeNode(attr)
+	    }
+	},
+	endElement:function(namespaceURI, localName, qName) {
+		var current = this.currentElement
+		var tagName = current.tagName;
+		this.currentElement = current.parentNode;
+	},
+	startPrefixMapping:function(prefix, uri) {
+	},
+	endPrefixMapping:function(prefix) {
+	},
+	processingInstruction:function(target, data) {
+	    var ins = this.doc.createProcessingInstruction(target, data);
+	    this.locator && position(this.locator,ins)
+	    appendElement(this, ins);
+	},
+	ignorableWhitespace:function(ch, start, length) {
+	},
+	characters:function(chars, start, length) {
+		chars = _toString.apply(this,arguments)
+		//console.log(chars)
+		if(chars){
+			if (this.cdata) {
+				var charNode = this.doc.createCDATASection(chars);
+			} else {
+				var charNode = this.doc.createTextNode(chars);
+			}
+			if(this.currentElement){
+				this.currentElement.appendChild(charNode);
+			}else if(/^\s*$/.test(chars)){
+				this.doc.appendChild(charNode);
+				//process xml
+			}
+			this.locator && position(this.locator,charNode)
+		}
+	},
+	skippedEntity:function(name) {
+	},
+	endDocument:function() {
+		this.doc.normalize();
+	},
+	setDocumentLocator:function (locator) {
+	    if(this.locator = locator){// && !('lineNumber' in locator)){
+	    	locator.lineNumber = 0;
+	    }
+	},
+	//LexicalHandler
+	comment:function(chars, start, length) {
+		chars = _toString.apply(this,arguments)
+	    var comm = this.doc.createComment(chars);
+	    this.locator && position(this.locator,comm)
+	    appendElement(this, comm);
+	},
+
+	startCDATA:function() {
+	    //used in characters() methods
+	    this.cdata = true;
+	},
+	endCDATA:function() {
+	    this.cdata = false;
+	},
+
+	startDTD:function(name, publicId, systemId) {
+		var impl = this.doc.implementation;
+	    if (impl && impl.createDocumentType) {
+	        var dt = impl.createDocumentType(name, publicId, systemId);
+	        this.locator && position(this.locator,dt)
+	        appendElement(this, dt);
+	    }
+	},
+	/**
+	 * @see org.xml.sax.ErrorHandler
+	 * @link http://www.saxproject.org/apidoc/org/xml/sax/ErrorHandler.html
+	 */
+	warning:function(error) {
+		console.warn('[xmldom warning]\t'+error,_locator(this.locator));
+	},
+	error:function(error) {
+		console.error('[xmldom error]\t'+error,_locator(this.locator));
+	},
+	fatalError:function(error) {
+		throw new ParseError(error, this.locator);
+	}
+}
+function _locator(l){
+	if(l){
+		return '\n@'+(l.systemId ||'')+'#[line:'+l.lineNumber+',col:'+l.columnNumber+']'
+	}
+}
+function _toString(chars,start,length){
+	if(typeof chars == 'string'){
+		return chars.substr(start,length)
+	}else{//java sax connect width xmldom on rhino(what about: "? && !(chars instanceof String)")
+		if(chars.length >= start+length || start){
+			return new java.lang.String(chars,start,length)+'';
+		}
+		return chars;
+	}
+}
+
+/*
+ * @link http://www.saxproject.org/apidoc/org/xml/sax/ext/LexicalHandler.html
+ * used method of org.xml.sax.ext.LexicalHandler:
+ *  #comment(chars, start, length)
+ *  #startCDATA()
+ *  #endCDATA()
+ *  #startDTD(name, publicId, systemId)
+ *
+ *
+ * IGNORED method of org.xml.sax.ext.LexicalHandler:
+ *  #endDTD()
+ *  #startEntity(name)
+ *  #endEntity(name)
+ *
+ *
+ * @link http://www.saxproject.org/apidoc/org/xml/sax/ext/DeclHandler.html
+ * IGNORED method of org.xml.sax.ext.DeclHandler
+ * 	#attributeDecl(eName, aName, type, mode, value)
+ *  #elementDecl(name, model)
+ *  #externalEntityDecl(name, publicId, systemId)
+ *  #internalEntityDecl(name, value)
+ * @link http://www.saxproject.org/apidoc/org/xml/sax/ext/EntityResolver2.html
+ * IGNORED method of org.xml.sax.EntityResolver2
+ *  #resolveEntity(String name,String publicId,String baseURI,String systemId)
+ *  #resolveEntity(publicId, systemId)
+ *  #getExternalSubset(name, baseURI)
+ * @link http://www.saxproject.org/apidoc/org/xml/sax/DTDHandler.html
+ * IGNORED method of org.xml.sax.DTDHandler
+ *  #notationDecl(name, publicId, systemId) {};
+ *  #unparsedEntityDecl(name, publicId, systemId, notationName) {};
+ */
+"endDTD,startEntity,endEntity,attributeDecl,elementDecl,externalEntityDecl,internalEntityDecl,resolveEntity,getExternalSubset,notationDecl,unparsedEntityDecl".replace(/\w+/g,function(key){
+	DOMHandler.prototype[key] = function(){return null}
+})
+
+/* Private static helpers treated below as private instance methods, so don't need to add these to the public API; we might use a Relator to also get rid of non-standard public properties */
+function appendElement (hander,node) {
+    if (!hander.currentElement) {
+        hander.doc.appendChild(node);
+    } else {
+        hander.currentElement.appendChild(node);
+    }
+}//appendChild and setAttributeNS are preformance key
+
+//if(typeof require == 'function'){
+var htmlEntity = __nccwpck_require__(83308);
+var sax = __nccwpck_require__(1931);
+var XMLReader = sax.XMLReader;
+var ParseError = sax.ParseError;
+var DOMImplementation = exports.DOMImplementation = __nccwpck_require__(70719).DOMImplementation;
+exports.XMLSerializer = __nccwpck_require__(70719).XMLSerializer ;
+exports.DOMParser = DOMParser;
+exports.__DOMHandler = DOMHandler;
+//}
+
+
+/***/ }),
+
+/***/ 70719:
+/***/ ((__unused_webpack_module, exports) => {
+
+var __webpack_unused_export__;
+function copy(src,dest){
+	for(var p in src){
+		dest[p] = src[p];
+	}
+}
+/**
+^\w+\.prototype\.([_\w]+)\s*=\s*((?:.*\{\s*?[\r\n][\s\S]*?^})|\S.*?(?=[;\r\n]));?
+^\w+\.prototype\.([_\w]+)\s*=\s*(\S.*?(?=[;\r\n]));?
+ */
+function _extends(Class,Super){
+	var pt = Class.prototype;
+	if(!(pt instanceof Super)){
+		function t(){};
+		t.prototype = Super.prototype;
+		t = new t();
+		copy(pt,t);
+		Class.prototype = pt = t;
+	}
+	if(pt.constructor != Class){
+		if(typeof Class != 'function'){
+			console.error("unknow Class:"+Class)
+		}
+		pt.constructor = Class
+	}
+}
+var htmlns = 'http://www.w3.org/1999/xhtml' ;
+// Node Types
+var NodeType = {}
+var ELEMENT_NODE                = NodeType.ELEMENT_NODE                = 1;
+var ATTRIBUTE_NODE              = NodeType.ATTRIBUTE_NODE              = 2;
+var TEXT_NODE                   = NodeType.TEXT_NODE                   = 3;
+var CDATA_SECTION_NODE          = NodeType.CDATA_SECTION_NODE          = 4;
+var ENTITY_REFERENCE_NODE       = NodeType.ENTITY_REFERENCE_NODE       = 5;
+var ENTITY_NODE                 = NodeType.ENTITY_NODE                 = 6;
+var PROCESSING_INSTRUCTION_NODE = NodeType.PROCESSING_INSTRUCTION_NODE = 7;
+var COMMENT_NODE                = NodeType.COMMENT_NODE                = 8;
+var DOCUMENT_NODE               = NodeType.DOCUMENT_NODE               = 9;
+var DOCUMENT_TYPE_NODE          = NodeType.DOCUMENT_TYPE_NODE          = 10;
+var DOCUMENT_FRAGMENT_NODE      = NodeType.DOCUMENT_FRAGMENT_NODE      = 11;
+var NOTATION_NODE               = NodeType.NOTATION_NODE               = 12;
+
+// ExceptionCode
+var ExceptionCode = {}
+var ExceptionMessage = {};
+var INDEX_SIZE_ERR              = ExceptionCode.INDEX_SIZE_ERR              = ((ExceptionMessage[1]="Index size error"),1);
+var DOMSTRING_SIZE_ERR          = ExceptionCode.DOMSTRING_SIZE_ERR          = ((ExceptionMessage[2]="DOMString size error"),2);
+var HIERARCHY_REQUEST_ERR       = ExceptionCode.HIERARCHY_REQUEST_ERR       = ((ExceptionMessage[3]="Hierarchy request error"),3);
+var WRONG_DOCUMENT_ERR          = ExceptionCode.WRONG_DOCUMENT_ERR          = ((ExceptionMessage[4]="Wrong document"),4);
+var INVALID_CHARACTER_ERR       = ExceptionCode.INVALID_CHARACTER_ERR       = ((ExceptionMessage[5]="Invalid character"),5);
+var NO_DATA_ALLOWED_ERR         = ExceptionCode.NO_DATA_ALLOWED_ERR         = ((ExceptionMessage[6]="No data allowed"),6);
+var NO_MODIFICATION_ALLOWED_ERR = ExceptionCode.NO_MODIFICATION_ALLOWED_ERR = ((ExceptionMessage[7]="No modification allowed"),7);
+var NOT_FOUND_ERR               = ExceptionCode.NOT_FOUND_ERR               = ((ExceptionMessage[8]="Not found"),8);
+var NOT_SUPPORTED_ERR           = ExceptionCode.NOT_SUPPORTED_ERR           = ((ExceptionMessage[9]="Not supported"),9);
+var INUSE_ATTRIBUTE_ERR         = ExceptionCode.INUSE_ATTRIBUTE_ERR         = ((ExceptionMessage[10]="Attribute in use"),10);
+//level2
+var INVALID_STATE_ERR        	= ExceptionCode.INVALID_STATE_ERR        	= ((ExceptionMessage[11]="Invalid state"),11);
+var SYNTAX_ERR               	= ExceptionCode.SYNTAX_ERR               	= ((ExceptionMessage[12]="Syntax error"),12);
+var INVALID_MODIFICATION_ERR 	= ExceptionCode.INVALID_MODIFICATION_ERR 	= ((ExceptionMessage[13]="Invalid modification"),13);
+var NAMESPACE_ERR            	= ExceptionCode.NAMESPACE_ERR           	= ((ExceptionMessage[14]="Invalid namespace"),14);
+var INVALID_ACCESS_ERR       	= ExceptionCode.INVALID_ACCESS_ERR      	= ((ExceptionMessage[15]="Invalid access"),15);
+
+/**
+ * DOM Level 2
+ * Object DOMException
+ * @see http://www.w3.org/TR/2000/REC-DOM-Level-2-Core-20001113/ecma-script-binding.html
+ * @see http://www.w3.org/TR/REC-DOM-Level-1/ecma-script-language-binding.html
+ */
+function DOMException(code, message) {
+	if(message instanceof Error){
+		var error = message;
+	}else{
+		error = this;
+		Error.call(this, ExceptionMessage[code]);
+		this.message = ExceptionMessage[code];
+		if(Error.captureStackTrace) Error.captureStackTrace(this, DOMException);
+	}
+	error.code = code;
+	if(message) this.message = this.message + ": " + message;
+	return error;
+};
+DOMException.prototype = Error.prototype;
+copy(ExceptionCode,DOMException)
+/**
+ * @see http://www.w3.org/TR/2000/REC-DOM-Level-2-Core-20001113/core.html#ID-536297177
+ * The NodeList interface provides the abstraction of an ordered collection of nodes, without defining or constraining how this collection is implemented. NodeList objects in the DOM are live.
+ * The items in the NodeList are accessible via an integral index, starting from 0.
+ */
+function NodeList() {
+};
+NodeList.prototype = {
+	/**
+	 * The number of nodes in the list. The range of valid child node indices is 0 to length-1 inclusive.
+	 * @standard level1
+	 */
+	length:0, 
+	/**
+	 * Returns the indexth item in the collection. If index is greater than or equal to the number of nodes in the list, this returns null.
+	 * @standard level1
+	 * @param index  unsigned long 
+	 *   Index into the collection.
+	 * @return Node
+	 * 	The node at the indexth position in the NodeList, or null if that is not a valid index. 
+	 */
+	item: function(index) {
+		return this[index] || null;
+	},
+	toString:function(isHTML,nodeFilter){
+		for(var buf = [], i = 0;i<this.length;i++){
+			serializeToString(this[i],buf,isHTML,nodeFilter);
+		}
+		return buf.join('');
+	}
+};
+function LiveNodeList(node,refresh){
+	this._node = node;
+	this._refresh = refresh
+	_updateLiveList(this);
+}
+function _updateLiveList(list){
+	var inc = list._node._inc || list._node.ownerDocument._inc;
+	if(list._inc != inc){
+		var ls = list._refresh(list._node);
+		//console.log(ls.length)
+		__set__(list,'length',ls.length);
+		copy(ls,list);
+		list._inc = inc;
+	}
+}
+LiveNodeList.prototype.item = function(i){
+	_updateLiveList(this);
+	return this[i];
+}
+
+_extends(LiveNodeList,NodeList);
+/**
+ * 
+ * Objects implementing the NamedNodeMap interface are used to represent collections of nodes that can be accessed by name. Note that NamedNodeMap does not inherit from NodeList; NamedNodeMaps are not maintained in any particular order. Objects contained in an object implementing NamedNodeMap may also be accessed by an ordinal index, but this is simply to allow convenient enumeration of the contents of a NamedNodeMap, and does not imply that the DOM specifies an order to these Nodes.
+ * NamedNodeMap objects in the DOM are live.
+ * used for attributes or DocumentType entities 
+ */
+function NamedNodeMap() {
+};
+
+function _findNodeIndex(list,node){
+	var i = list.length;
+	while(i--){
+		if(list[i] === node){return i}
+	}
+}
+
+function _addNamedNode(el,list,newAttr,oldAttr){
+	if(oldAttr){
+		list[_findNodeIndex(list,oldAttr)] = newAttr;
+	}else{
+		list[list.length++] = newAttr;
+	}
+	if(el){
+		newAttr.ownerElement = el;
+		var doc = el.ownerDocument;
+		if(doc){
+			oldAttr && _onRemoveAttribute(doc,el,oldAttr);
+			_onAddAttribute(doc,el,newAttr);
+		}
+	}
+}
+function _removeNamedNode(el,list,attr){
+	//console.log('remove attr:'+attr)
+	var i = _findNodeIndex(list,attr);
+	if(i>=0){
+		var lastIndex = list.length-1
+		while(i<lastIndex){
+			list[i] = list[++i]
+		}
+		list.length = lastIndex;
+		if(el){
+			var doc = el.ownerDocument;
+			if(doc){
+				_onRemoveAttribute(doc,el,attr);
+				attr.ownerElement = null;
+			}
+		}
+	}else{
+		throw DOMException(NOT_FOUND_ERR,new Error(el.tagName+'@'+attr))
+	}
+}
+NamedNodeMap.prototype = {
+	length:0,
+	item:NodeList.prototype.item,
+	getNamedItem: function(key) {
+//		if(key.indexOf(':')>0 || key == 'xmlns'){
+//			return null;
+//		}
+		//console.log()
+		var i = this.length;
+		while(i--){
+			var attr = this[i];
+			//console.log(attr.nodeName,key)
+			if(attr.nodeName == key){
+				return attr;
+			}
+		}
+	},
+	setNamedItem: function(attr) {
+		var el = attr.ownerElement;
+		if(el && el!=this._ownerElement){
+			throw new DOMException(INUSE_ATTRIBUTE_ERR);
+		}
+		var oldAttr = this.getNamedItem(attr.nodeName);
+		_addNamedNode(this._ownerElement,this,attr,oldAttr);
+		return oldAttr;
+	},
+	/* returns Node */
+	setNamedItemNS: function(attr) {// raises: WRONG_DOCUMENT_ERR,NO_MODIFICATION_ALLOWED_ERR,INUSE_ATTRIBUTE_ERR
+		var el = attr.ownerElement, oldAttr;
+		if(el && el!=this._ownerElement){
+			throw new DOMException(INUSE_ATTRIBUTE_ERR);
+		}
+		oldAttr = this.getNamedItemNS(attr.namespaceURI,attr.localName);
+		_addNamedNode(this._ownerElement,this,attr,oldAttr);
+		return oldAttr;
+	},
+
+	/* returns Node */
+	removeNamedItem: function(key) {
+		var attr = this.getNamedItem(key);
+		_removeNamedNode(this._ownerElement,this,attr);
+		return attr;
+		
+		
+	},// raises: NOT_FOUND_ERR,NO_MODIFICATION_ALLOWED_ERR
+	
+	//for level2
+	removeNamedItemNS:function(namespaceURI,localName){
+		var attr = this.getNamedItemNS(namespaceURI,localName);
+		_removeNamedNode(this._ownerElement,this,attr);
+		return attr;
+	},
+	getNamedItemNS: function(namespaceURI, localName) {
+		var i = this.length;
+		while(i--){
+			var node = this[i];
+			if(node.localName == localName && node.namespaceURI == namespaceURI){
+				return node;
+			}
+		}
+		return null;
+	}
+};
+/**
+ * @see http://www.w3.org/TR/REC-DOM-Level-1/level-one-core.html#ID-102161490
+ */
+function DOMImplementation(/* Object */ features) {
+	this._features = {};
+	if (features) {
+		for (var feature in features) {
+			 this._features = features[feature];
+		}
+	}
+};
+
+DOMImplementation.prototype = {
+	hasFeature: function(/* string */ feature, /* string */ version) {
+		var versions = this._features[feature.toLowerCase()];
+		if (versions && (!version || version in versions)) {
+			return true;
+		} else {
+			return false;
+		}
+	},
+	// Introduced in DOM Level 2:
+	createDocument:function(namespaceURI,  qualifiedName, doctype){// raises:INVALID_CHARACTER_ERR,NAMESPACE_ERR,WRONG_DOCUMENT_ERR
+		var doc = new Document();
+		doc.implementation = this;
+		doc.childNodes = new NodeList();
+		doc.doctype = doctype;
+		if(doctype){
+			doc.appendChild(doctype);
+		}
+		if(qualifiedName){
+			var root = doc.createElementNS(namespaceURI,qualifiedName);
+			doc.appendChild(root);
+		}
+		return doc;
+	},
+	// Introduced in DOM Level 2:
+	createDocumentType:function(qualifiedName, publicId, systemId){// raises:INVALID_CHARACTER_ERR,NAMESPACE_ERR
+		var node = new DocumentType();
+		node.name = qualifiedName;
+		node.nodeName = qualifiedName;
+		node.publicId = publicId;
+		node.systemId = systemId;
+		// Introduced in DOM Level 2:
+		//readonly attribute DOMString        internalSubset;
+		
+		//TODO:..
+		//  readonly attribute NamedNodeMap     entities;
+		//  readonly attribute NamedNodeMap     notations;
+		return node;
+	}
+};
+
+
+/**
+ * @see http://www.w3.org/TR/2000/REC-DOM-Level-2-Core-20001113/core.html#ID-1950641247
+ */
+
+function Node() {
+};
+
+Node.prototype = {
+	firstChild : null,
+	lastChild : null,
+	previousSibling : null,
+	nextSibling : null,
+	attributes : null,
+	parentNode : null,
+	childNodes : null,
+	ownerDocument : null,
+	nodeValue : null,
+	namespaceURI : null,
+	prefix : null,
+	localName : null,
+	// Modified in DOM Level 2:
+	insertBefore:function(newChild, refChild){//raises 
+		return _insertBefore(this,newChild,refChild);
+	},
+	replaceChild:function(newChild, oldChild){//raises 
+		this.insertBefore(newChild,oldChild);
+		if(oldChild){
+			this.removeChild(oldChild);
+		}
+	},
+	removeChild:function(oldChild){
+		return _removeChild(this,oldChild);
+	},
+	appendChild:function(newChild){
+		return this.insertBefore(newChild,null);
+	},
+	hasChildNodes:function(){
+		return this.firstChild != null;
+	},
+	cloneNode:function(deep){
+		return cloneNode(this.ownerDocument||this,this,deep);
+	},
+	// Modified in DOM Level 2:
+	normalize:function(){
+		var child = this.firstChild;
+		while(child){
+			var next = child.nextSibling;
+			if(next && next.nodeType == TEXT_NODE && child.nodeType == TEXT_NODE){
+				this.removeChild(next);
+				child.appendData(next.data);
+			}else{
+				child.normalize();
+				child = next;
+			}
+		}
+	},
+  	// Introduced in DOM Level 2:
+	isSupported:function(feature, version){
+		return this.ownerDocument.implementation.hasFeature(feature,version);
+	},
+    // Introduced in DOM Level 2:
+    hasAttributes:function(){
+    	return this.attributes.length>0;
+    },
+    lookupPrefix:function(namespaceURI){
+    	var el = this;
+    	while(el){
+    		var map = el._nsMap;
+    		//console.dir(map)
+    		if(map){
+    			for(var n in map){
+    				if(map[n] == namespaceURI){
+    					return n;
+    				}
+    			}
+    		}
+    		el = el.nodeType == ATTRIBUTE_NODE?el.ownerDocument : el.parentNode;
+    	}
+    	return null;
+    },
+    // Introduced in DOM Level 3:
+    lookupNamespaceURI:function(prefix){
+    	var el = this;
+    	while(el){
+    		var map = el._nsMap;
+    		//console.dir(map)
+    		if(map){
+    			if(prefix in map){
+    				return map[prefix] ;
+    			}
+    		}
+    		el = el.nodeType == ATTRIBUTE_NODE?el.ownerDocument : el.parentNode;
+    	}
+    	return null;
+    },
+    // Introduced in DOM Level 3:
+    isDefaultNamespace:function(namespaceURI){
+    	var prefix = this.lookupPrefix(namespaceURI);
+    	return prefix == null;
+    }
+};
+
+
+function _xmlEncoder(c){
+	return c == '<' && '&lt;' ||
+         c == '>' && '&gt;' ||
+         c == '&' && '&amp;' ||
+         c == '"' && '&quot;' ||
+         '&#'+c.charCodeAt()+';'
+}
+
+
+copy(NodeType,Node);
+copy(NodeType,Node.prototype);
+
+/**
+ * @param callback return true for continue,false for break
+ * @return boolean true: break visit;
+ */
+function _visitNode(node,callback){
+	if(callback(node)){
+		return true;
+	}
+	if(node = node.firstChild){
+		do{
+			if(_visitNode(node,callback)){return true}
+        }while(node=node.nextSibling)
+    }
+}
+
+
+
+function Document(){
+}
+function _onAddAttribute(doc,el,newAttr){
+	doc && doc._inc++;
+	var ns = newAttr.namespaceURI ;
+	if(ns == 'http://www.w3.org/2000/xmlns/'){
+		//update namespace
+		el._nsMap[newAttr.prefix?newAttr.localName:''] = newAttr.value
+	}
+}
+function _onRemoveAttribute(doc,el,newAttr,remove){
+	doc && doc._inc++;
+	var ns = newAttr.namespaceURI ;
+	if(ns == 'http://www.w3.org/2000/xmlns/'){
+		//update namespace
+		delete el._nsMap[newAttr.prefix?newAttr.localName:'']
+	}
+}
+function _onUpdateChild(doc,el,newChild){
+	if(doc && doc._inc){
+		doc._inc++;
+		//update childNodes
+		var cs = el.childNodes;
+		if(newChild){
+			cs[cs.length++] = newChild;
+		}else{
+			//console.log(1)
+			var child = el.firstChild;
+			var i = 0;
+			while(child){
+				cs[i++] = child;
+				child =child.nextSibling;
+			}
+			cs.length = i;
+		}
+	}
+}
+
+/**
+ * attributes;
+ * children;
+ * 
+ * writeable properties:
+ * nodeValue,Attr:value,CharacterData:data
+ * prefix
+ */
+function _removeChild(parentNode,child){
+	var previous = child.previousSibling;
+	var next = child.nextSibling;
+	if(previous){
+		previous.nextSibling = next;
+	}else{
+		parentNode.firstChild = next
+	}
+	if(next){
+		next.previousSibling = previous;
+	}else{
+		parentNode.lastChild = previous;
+	}
+	_onUpdateChild(parentNode.ownerDocument,parentNode);
+	return child;
+}
+/**
+ * preformance key(refChild == null)
+ */
+function _insertBefore(parentNode,newChild,nextChild){
+	var cp = newChild.parentNode;
+	if(cp){
+		cp.removeChild(newChild);//remove and update
+	}
+	if(newChild.nodeType === DOCUMENT_FRAGMENT_NODE){
+		var newFirst = newChild.firstChild;
+		if (newFirst == null) {
+			return newChild;
+		}
+		var newLast = newChild.lastChild;
+	}else{
+		newFirst = newLast = newChild;
+	}
+	var pre = nextChild ? nextChild.previousSibling : parentNode.lastChild;
+
+	newFirst.previousSibling = pre;
+	newLast.nextSibling = nextChild;
+	
+	
+	if(pre){
+		pre.nextSibling = newFirst;
+	}else{
+		parentNode.firstChild = newFirst;
+	}
+	if(nextChild == null){
+		parentNode.lastChild = newLast;
+	}else{
+		nextChild.previousSibling = newLast;
+	}
+	do{
+		newFirst.parentNode = parentNode;
+	}while(newFirst !== newLast && (newFirst= newFirst.nextSibling))
+	_onUpdateChild(parentNode.ownerDocument||parentNode,parentNode);
+	//console.log(parentNode.lastChild.nextSibling == null)
+	if (newChild.nodeType == DOCUMENT_FRAGMENT_NODE) {
+		newChild.firstChild = newChild.lastChild = null;
+	}
+	return newChild;
+}
+function _appendSingleChild(parentNode,newChild){
+	var cp = newChild.parentNode;
+	if(cp){
+		var pre = parentNode.lastChild;
+		cp.removeChild(newChild);//remove and update
+		var pre = parentNode.lastChild;
+	}
+	var pre = parentNode.lastChild;
+	newChild.parentNode = parentNode;
+	newChild.previousSibling = pre;
+	newChild.nextSibling = null;
+	if(pre){
+		pre.nextSibling = newChild;
+	}else{
+		parentNode.firstChild = newChild;
+	}
+	parentNode.lastChild = newChild;
+	_onUpdateChild(parentNode.ownerDocument,parentNode,newChild);
+	return newChild;
+	//console.log("__aa",parentNode.lastChild.nextSibling == null)
+}
+Document.prototype = {
+	//implementation : null,
+	nodeName :  '#document',
+	nodeType :  DOCUMENT_NODE,
+	doctype :  null,
+	documentElement :  null,
+	_inc : 1,
+	
+	insertBefore :  function(newChild, refChild){//raises 
+		if(newChild.nodeType == DOCUMENT_FRAGMENT_NODE){
+			var child = newChild.firstChild;
+			while(child){
+				var next = child.nextSibling;
+				this.insertBefore(child,refChild);
+				child = next;
+			}
+			return newChild;
+		}
+		if(this.documentElement == null && newChild.nodeType == ELEMENT_NODE){
+			this.documentElement = newChild;
+		}
+		
+		return _insertBefore(this,newChild,refChild),(newChild.ownerDocument = this),newChild;
+	},
+	removeChild :  function(oldChild){
+		if(this.documentElement == oldChild){
+			this.documentElement = null;
+		}
+		return _removeChild(this,oldChild);
+	},
+	// Introduced in DOM Level 2:
+	importNode : function(importedNode,deep){
+		return importNode(this,importedNode,deep);
+	},
+	// Introduced in DOM Level 2:
+	getElementById :	function(id){
+		var rtv = null;
+		_visitNode(this.documentElement,function(node){
+			if(node.nodeType == ELEMENT_NODE){
+				if(node.getAttribute('id') == id){
+					rtv = node;
+					return true;
+				}
+			}
+		})
+		return rtv;
+	},
+	
+	getElementsByClassName: function(className) {
+		var pattern = new RegExp("(^|\\s)" + className + "(\\s|$)");
+		return new LiveNodeList(this, function(base) {
+			var ls = [];
+			_visitNode(base.documentElement, function(node) {
+				if(node !== base && node.nodeType == ELEMENT_NODE) {
+					if(pattern.test(node.getAttribute('class'))) {
+						ls.push(node);
+					}
+				}
+			});
+			return ls;
+		});
+	},
+	
+	//document factory method:
+	createElement :	function(tagName){
+		var node = new Element();
+		node.ownerDocument = this;
+		node.nodeName = tagName;
+		node.tagName = tagName;
+		node.childNodes = new NodeList();
+		var attrs	= node.attributes = new NamedNodeMap();
+		attrs._ownerElement = node;
+		return node;
+	},
+	createDocumentFragment :	function(){
+		var node = new DocumentFragment();
+		node.ownerDocument = this;
+		node.childNodes = new NodeList();
+		return node;
+	},
+	createTextNode :	function(data){
+		var node = new Text();
+		node.ownerDocument = this;
+		node.appendData(data)
+		return node;
+	},
+	createComment :	function(data){
+		var node = new Comment();
+		node.ownerDocument = this;
+		node.appendData(data)
+		return node;
+	},
+	createCDATASection :	function(data){
+		var node = new CDATASection();
+		node.ownerDocument = this;
+		node.appendData(data)
+		return node;
+	},
+	createProcessingInstruction :	function(target,data){
+		var node = new ProcessingInstruction();
+		node.ownerDocument = this;
+		node.tagName = node.target = target;
+		node.nodeValue= node.data = data;
+		return node;
+	},
+	createAttribute :	function(name){
+		var node = new Attr();
+		node.ownerDocument	= this;
+		node.name = name;
+		node.nodeName	= name;
+		node.localName = name;
+		node.specified = true;
+		return node;
+	},
+	createEntityReference :	function(name){
+		var node = new EntityReference();
+		node.ownerDocument	= this;
+		node.nodeName	= name;
+		return node;
+	},
+	// Introduced in DOM Level 2:
+	createElementNS :	function(namespaceURI,qualifiedName){
+		var node = new Element();
+		var pl = qualifiedName.split(':');
+		var attrs	= node.attributes = new NamedNodeMap();
+		node.childNodes = new NodeList();
+		node.ownerDocument = this;
+		node.nodeName = qualifiedName;
+		node.tagName = qualifiedName;
+		node.namespaceURI = namespaceURI;
+		if(pl.length == 2){
+			node.prefix = pl[0];
+			node.localName = pl[1];
+		}else{
+			//el.prefix = null;
+			node.localName = qualifiedName;
+		}
+		attrs._ownerElement = node;
+		return node;
+	},
+	// Introduced in DOM Level 2:
+	createAttributeNS :	function(namespaceURI,qualifiedName){
+		var node = new Attr();
+		var pl = qualifiedName.split(':');
+		node.ownerDocument = this;
+		node.nodeName = qualifiedName;
+		node.name = qualifiedName;
+		node.namespaceURI = namespaceURI;
+		node.specified = true;
+		if(pl.length == 2){
+			node.prefix = pl[0];
+			node.localName = pl[1];
+		}else{
+			//el.prefix = null;
+			node.localName = qualifiedName;
+		}
+		return node;
+	}
+};
+_extends(Document,Node);
+
+
+function Element() {
+	this._nsMap = {};
+};
+Element.prototype = {
+	nodeType : ELEMENT_NODE,
+	hasAttribute : function(name){
+		return this.getAttributeNode(name)!=null;
+	},
+	getAttribute : function(name){
+		var attr = this.getAttributeNode(name);
+		return attr && attr.value || '';
+	},
+	getAttributeNode : function(name){
+		return this.attributes.getNamedItem(name);
+	},
+	setAttribute : function(name, value){
+		var attr = this.ownerDocument.createAttribute(name);
+		attr.value = attr.nodeValue = "" + value;
+		this.setAttributeNode(attr)
+	},
+	removeAttribute : function(name){
+		var attr = this.getAttributeNode(name)
+		attr && this.removeAttributeNode(attr);
+	},
+	
+	//four real opeartion method
+	appendChild:function(newChild){
+		if(newChild.nodeType === DOCUMENT_FRAGMENT_NODE){
+			return this.insertBefore(newChild,null);
+		}else{
+			return _appendSingleChild(this,newChild);
+		}
+	},
+	setAttributeNode : function(newAttr){
+		return this.attributes.setNamedItem(newAttr);
+	},
+	setAttributeNodeNS : function(newAttr){
+		return this.attributes.setNamedItemNS(newAttr);
+	},
+	removeAttributeNode : function(oldAttr){
+		//console.log(this == oldAttr.ownerElement)
+		return this.attributes.removeNamedItem(oldAttr.nodeName);
+	},
+	//get real attribute name,and remove it by removeAttributeNode
+	removeAttributeNS : function(namespaceURI, localName){
+		var old = this.getAttributeNodeNS(namespaceURI, localName);
+		old && this.removeAttributeNode(old);
+	},
+	
+	hasAttributeNS : function(namespaceURI, localName){
+		return this.getAttributeNodeNS(namespaceURI, localName)!=null;
+	},
+	getAttributeNS : function(namespaceURI, localName){
+		var attr = this.getAttributeNodeNS(namespaceURI, localName);
+		return attr && attr.value || '';
+	},
+	setAttributeNS : function(namespaceURI, qualifiedName, value){
+		var attr = this.ownerDocument.createAttributeNS(namespaceURI, qualifiedName);
+		attr.value = attr.nodeValue = "" + value;
+		this.setAttributeNode(attr)
+	},
+	getAttributeNodeNS : function(namespaceURI, localName){
+		return this.attributes.getNamedItemNS(namespaceURI, localName);
+	},
+	
+	getElementsByTagName : function(tagName){
+		return new LiveNodeList(this,function(base){
+			var ls = [];
+			_visitNode(base,function(node){
+				if(node !== base && node.nodeType == ELEMENT_NODE && (tagName === '*' || node.tagName == tagName)){
+					ls.push(node);
+				}
+			});
+			return ls;
+		});
+	},
+	getElementsByTagNameNS : function(namespaceURI, localName){
+		return new LiveNodeList(this,function(base){
+			var ls = [];
+			_visitNode(base,function(node){
+				if(node !== base && node.nodeType === ELEMENT_NODE && (namespaceURI === '*' || node.namespaceURI === namespaceURI) && (localName === '*' || node.localName == localName)){
+					ls.push(node);
+				}
+			});
+			return ls;
+			
+		});
+	}
+};
+Document.prototype.getElementsByTagName = Element.prototype.getElementsByTagName;
+Document.prototype.getElementsByTagNameNS = Element.prototype.getElementsByTagNameNS;
+
+
+_extends(Element,Node);
+function Attr() {
+};
+Attr.prototype.nodeType = ATTRIBUTE_NODE;
+_extends(Attr,Node);
+
+
+function CharacterData() {
+};
+CharacterData.prototype = {
+	data : '',
+	substringData : function(offset, count) {
+		return this.data.substring(offset, offset+count);
+	},
+	appendData: function(text) {
+		text = this.data+text;
+		this.nodeValue = this.data = text;
+		this.length = text.length;
+	},
+	insertData: function(offset,text) {
+		this.replaceData(offset,0,text);
+	
+	},
+	appendChild:function(newChild){
+		throw new Error(ExceptionMessage[HIERARCHY_REQUEST_ERR])
+	},
+	deleteData: function(offset, count) {
+		this.replaceData(offset,count,"");
+	},
+	replaceData: function(offset, count, text) {
+		var start = this.data.substring(0,offset);
+		var end = this.data.substring(offset+count);
+		text = start + text + end;
+		this.nodeValue = this.data = text;
+		this.length = text.length;
+	}
+}
+_extends(CharacterData,Node);
+function Text() {
+};
+Text.prototype = {
+	nodeName : "#text",
+	nodeType : TEXT_NODE,
+	splitText : function(offset) {
+		var text = this.data;
+		var newText = text.substring(offset);
+		text = text.substring(0, offset);
+		this.data = this.nodeValue = text;
+		this.length = text.length;
+		var newNode = this.ownerDocument.createTextNode(newText);
+		if(this.parentNode){
+			this.parentNode.insertBefore(newNode, this.nextSibling);
+		}
+		return newNode;
+	}
+}
+_extends(Text,CharacterData);
+function Comment() {
+};
+Comment.prototype = {
+	nodeName : "#comment",
+	nodeType : COMMENT_NODE
+}
+_extends(Comment,CharacterData);
+
+function CDATASection() {
+};
+CDATASection.prototype = {
+	nodeName : "#cdata-section",
+	nodeType : CDATA_SECTION_NODE
+}
+_extends(CDATASection,CharacterData);
+
+
+function DocumentType() {
+};
+DocumentType.prototype.nodeType = DOCUMENT_TYPE_NODE;
+_extends(DocumentType,Node);
+
+function Notation() {
+};
+Notation.prototype.nodeType = NOTATION_NODE;
+_extends(Notation,Node);
+
+function Entity() {
+};
+Entity.prototype.nodeType = ENTITY_NODE;
+_extends(Entity,Node);
+
+function EntityReference() {
+};
+EntityReference.prototype.nodeType = ENTITY_REFERENCE_NODE;
+_extends(EntityReference,Node);
+
+function DocumentFragment() {
+};
+DocumentFragment.prototype.nodeName =	"#document-fragment";
+DocumentFragment.prototype.nodeType =	DOCUMENT_FRAGMENT_NODE;
+_extends(DocumentFragment,Node);
+
+
+function ProcessingInstruction() {
+}
+ProcessingInstruction.prototype.nodeType = PROCESSING_INSTRUCTION_NODE;
+_extends(ProcessingInstruction,Node);
+function XMLSerializer(){}
+XMLSerializer.prototype.serializeToString = function(node,isHtml,nodeFilter){
+	return nodeSerializeToString.call(node,isHtml,nodeFilter);
+}
+Node.prototype.toString = nodeSerializeToString;
+function nodeSerializeToString(isHtml,nodeFilter){
+	var buf = [];
+	var refNode = this.nodeType == 9 && this.documentElement || this;
+	var prefix = refNode.prefix;
+	var uri = refNode.namespaceURI;
+	
+	if(uri && prefix == null){
+		//console.log(prefix)
+		var prefix = refNode.lookupPrefix(uri);
+		if(prefix == null){
+			//isHTML = true;
+			var visibleNamespaces=[
+			{namespace:uri,prefix:null}
+			//{namespace:uri,prefix:''}
+			]
+		}
+	}
+	serializeToString(this,buf,isHtml,nodeFilter,visibleNamespaces);
+	//console.log('###',this.nodeType,uri,prefix,buf.join(''))
+	return buf.join('');
+}
+function needNamespaceDefine(node,isHTML, visibleNamespaces) {
+	var prefix = node.prefix||'';
+	var uri = node.namespaceURI;
+	if (!prefix && !uri){
+		return false;
+	}
+	if (prefix === "xml" && uri === "http://www.w3.org/XML/1998/namespace" 
+		|| uri == 'http://www.w3.org/2000/xmlns/'){
+		return false;
+	}
+	
+	var i = visibleNamespaces.length 
+	//console.log('@@@@',node.tagName,prefix,uri,visibleNamespaces)
+	while (i--) {
+		var ns = visibleNamespaces[i];
+		// get namespace prefix
+		//console.log(node.nodeType,node.tagName,ns.prefix,prefix)
+		if (ns.prefix == prefix){
+			return ns.namespace != uri;
+		}
+	}
+	//console.log(isHTML,uri,prefix=='')
+	//if(isHTML && prefix ==null && uri == 'http://www.w3.org/1999/xhtml'){
+	//	return false;
+	//}
+	//node.flag = '11111'
+	//console.error(3,true,node.flag,node.prefix,node.namespaceURI)
+	return true;
+}
+function serializeToString(node,buf,isHTML,nodeFilter,visibleNamespaces){
+	if(nodeFilter){
+		node = nodeFilter(node);
+		if(node){
+			if(typeof node == 'string'){
+				buf.push(node);
+				return;
+			}
+		}else{
+			return;
+		}
+		//buf.sort.apply(attrs, attributeSorter);
+	}
+	switch(node.nodeType){
+	case ELEMENT_NODE:
+		if (!visibleNamespaces) visibleNamespaces = [];
+		var startVisibleNamespaces = visibleNamespaces.length;
+		var attrs = node.attributes;
+		var len = attrs.length;
+		var child = node.firstChild;
+		var nodeName = node.tagName;
+		
+		isHTML =  (htmlns === node.namespaceURI) ||isHTML 
+		buf.push('<',nodeName);
+		
+		
+		
+		for(var i=0;i<len;i++){
+			// add namespaces for attributes
+			var attr = attrs.item(i);
+			if (attr.prefix == 'xmlns') {
+				visibleNamespaces.push({ prefix: attr.localName, namespace: attr.value });
+			}else if(attr.nodeName == 'xmlns'){
+				visibleNamespaces.push({ prefix: '', namespace: attr.value });
+			}
+		}
+		for(var i=0;i<len;i++){
+			var attr = attrs.item(i);
+			if (needNamespaceDefine(attr,isHTML, visibleNamespaces)) {
+				var prefix = attr.prefix||'';
+				var uri = attr.namespaceURI;
+				var ns = prefix ? ' xmlns:' + prefix : " xmlns";
+				buf.push(ns, '="' , uri , '"');
+				visibleNamespaces.push({ prefix: prefix, namespace:uri });
+			}
+			serializeToString(attr,buf,isHTML,nodeFilter,visibleNamespaces);
+		}
+		// add namespace for current node		
+		if (needNamespaceDefine(node,isHTML, visibleNamespaces)) {
+			var prefix = node.prefix||'';
+			var uri = node.namespaceURI;
+			if (uri) {
+				// Avoid empty namespace value like xmlns:ds=""
+				// Empty namespace URL will we produce an invalid XML document
+				var ns = prefix ? ' xmlns:' + prefix : " xmlns";
+				buf.push(ns, '="' , uri , '"');
+				visibleNamespaces.push({ prefix: prefix, namespace:uri });
+			}
+		}
+		
+		if(child || isHTML && !/^(?:meta|link|img|br|hr|input)$/i.test(nodeName)){
+			buf.push('>');
+			//if is cdata child node
+			if(isHTML && /^script$/i.test(nodeName)){
+				while(child){
+					if(child.data){
+						buf.push(child.data);
+					}else{
+						serializeToString(child,buf,isHTML,nodeFilter,visibleNamespaces);
+					}
+					child = child.nextSibling;
+				}
+			}else
+			{
+				while(child){
+					serializeToString(child,buf,isHTML,nodeFilter,visibleNamespaces);
+					child = child.nextSibling;
+				}
+			}
+			buf.push('</',nodeName,'>');
+		}else{
+			buf.push('/>');
+		}
+		// remove added visible namespaces
+		//visibleNamespaces.length = startVisibleNamespaces;
+		return;
+	case DOCUMENT_NODE:
+	case DOCUMENT_FRAGMENT_NODE:
+		var child = node.firstChild;
+		while(child){
+			serializeToString(child,buf,isHTML,nodeFilter,visibleNamespaces);
+			child = child.nextSibling;
+		}
+		return;
+	case ATTRIBUTE_NODE:
+		/**
+		 * Well-formedness constraint: No < in Attribute Values
+		 * The replacement text of any entity referred to directly or indirectly in an attribute value must not contain a <.
+		 * @see https://www.w3.org/TR/xml/#CleanAttrVals
+		 * @see https://www.w3.org/TR/xml/#NT-AttValue
+		 */
+		return buf.push(' ', node.name, '="', node.value.replace(/[<&"]/g,_xmlEncoder), '"');
+	case TEXT_NODE:
+		/**
+		 * The ampersand character (&) and the left angle bracket (<) must not appear in their literal form,
+		 * except when used as markup delimiters, or within a comment, a processing instruction, or a CDATA section.
+		 * If they are needed elsewhere, they must be escaped using either numeric character references or the strings
+		 * `&amp;` and `&lt;` respectively.
+		 * The right angle bracket (>) may be represented using the string " &gt; ", and must, for compatibility,
+		 * be escaped using either `&gt;` or a character reference when it appears in the string `]]>` in content,
+		 * when that string is not marking the end of a CDATA section.
+		 *
+		 * In the content of elements, character data is any string of characters
+		 * which does not contain the start-delimiter of any markup
+		 * and does not include the CDATA-section-close delimiter, `]]>`.
+		 *
+		 * @see https://www.w3.org/TR/xml/#NT-CharData
+		 */
+		return buf.push(node.data
+			.replace(/[<&]/g,_xmlEncoder)
+			.replace(/]]>/g, ']]&gt;')
+		);
+	case CDATA_SECTION_NODE:
+		return buf.push( '<![CDATA[',node.data,']]>');
+	case COMMENT_NODE:
+		return buf.push( "<!--",node.data,"-->");
+	case DOCUMENT_TYPE_NODE:
+		var pubid = node.publicId;
+		var sysid = node.systemId;
+		buf.push('<!DOCTYPE ',node.name);
+		if(pubid){
+			buf.push(' PUBLIC ', pubid);
+			if (sysid && sysid!='.') {
+				buf.push(' ', sysid);
+			}
+			buf.push('>');
+		}else if(sysid && sysid!='.'){
+			buf.push(' SYSTEM ', sysid, '>');
+		}else{
+			var sub = node.internalSubset;
+			if(sub){
+				buf.push(" [",sub,"]");
+			}
+			buf.push(">");
+		}
+		return;
+	case PROCESSING_INSTRUCTION_NODE:
+		return buf.push( "<?",node.target," ",node.data,"?>");
+	case ENTITY_REFERENCE_NODE:
+		return buf.push( '&',node.nodeName,';');
+	//case ENTITY_NODE:
+	//case NOTATION_NODE:
+	default:
+		buf.push('??',node.nodeName);
+	}
+}
+function importNode(doc,node,deep){
+	var node2;
+	switch (node.nodeType) {
+	case ELEMENT_NODE:
+		node2 = node.cloneNode(false);
+		node2.ownerDocument = doc;
+		//var attrs = node2.attributes;
+		//var len = attrs.length;
+		//for(var i=0;i<len;i++){
+			//node2.setAttributeNodeNS(importNode(doc,attrs.item(i),deep));
+		//}
+	case DOCUMENT_FRAGMENT_NODE:
+		break;
+	case ATTRIBUTE_NODE:
+		deep = true;
+		break;
+	//case ENTITY_REFERENCE_NODE:
+	//case PROCESSING_INSTRUCTION_NODE:
+	////case TEXT_NODE:
+	//case CDATA_SECTION_NODE:
+	//case COMMENT_NODE:
+	//	deep = false;
+	//	break;
+	//case DOCUMENT_NODE:
+	//case DOCUMENT_TYPE_NODE:
+	//cannot be imported.
+	//case ENTITY_NODE:
+	//case NOTATION_NODE：
+	//can not hit in level3
+	//default:throw e;
+	}
+	if(!node2){
+		node2 = node.cloneNode(false);//false
+	}
+	node2.ownerDocument = doc;
+	node2.parentNode = null;
+	if(deep){
+		var child = node.firstChild;
+		while(child){
+			node2.appendChild(importNode(doc,child,deep));
+			child = child.nextSibling;
+		}
+	}
+	return node2;
+}
+//
+//var _relationMap = {firstChild:1,lastChild:1,previousSibling:1,nextSibling:1,
+//					attributes:1,childNodes:1,parentNode:1,documentElement:1,doctype,};
+function cloneNode(doc,node,deep){
+	var node2 = new node.constructor();
+	for(var n in node){
+		var v = node[n];
+		if(typeof v != 'object' ){
+			if(v != node2[n]){
+				node2[n] = v;
+			}
+		}
+	}
+	if(node.childNodes){
+		node2.childNodes = new NodeList();
+	}
+	node2.ownerDocument = doc;
+	switch (node2.nodeType) {
+	case ELEMENT_NODE:
+		var attrs	= node.attributes;
+		var attrs2	= node2.attributes = new NamedNodeMap();
+		var len = attrs.length
+		attrs2._ownerElement = node2;
+		for(var i=0;i<len;i++){
+			node2.setAttributeNode(cloneNode(doc,attrs.item(i),true));
+		}
+		break;;
+	case ATTRIBUTE_NODE:
+		deep = true;
+	}
+	if(deep){
+		var child = node.firstChild;
+		while(child){
+			node2.appendChild(cloneNode(doc,child,deep));
+			child = child.nextSibling;
+		}
+	}
+	return node2;
+}
+
+function __set__(object,key,value){
+	object[key] = value
+}
+//do dynamic
+try{
+	if(Object.defineProperty){
+		Object.defineProperty(LiveNodeList.prototype,'length',{
+			get:function(){
+				_updateLiveList(this);
+				return this.$$length;
+			}
+		});
+		Object.defineProperty(Node.prototype,'textContent',{
+			get:function(){
+				return getTextContent(this);
+			},
+			set:function(data){
+				switch(this.nodeType){
+				case ELEMENT_NODE:
+				case DOCUMENT_FRAGMENT_NODE:
+					while(this.firstChild){
+						this.removeChild(this.firstChild);
+					}
+					if(data || String(data)){
+						this.appendChild(this.ownerDocument.createTextNode(data));
+					}
+					break;
+				default:
+					//TODO:
+					this.data = data;
+					this.value = data;
+					this.nodeValue = data;
+				}
+			}
+		})
+		
+		function getTextContent(node){
+			switch(node.nodeType){
+			case ELEMENT_NODE:
+			case DOCUMENT_FRAGMENT_NODE:
+				var buf = [];
+				node = node.firstChild;
+				while(node){
+					if(node.nodeType!==7 && node.nodeType !==8){
+						buf.push(getTextContent(node));
+					}
+					node = node.nextSibling;
+				}
+				return buf.join('');
+			default:
+				return node.nodeValue;
+			}
+		}
+		__set__ = function(object,key,value){
+			//console.log(value)
+			object['$$'+key] = value
+		}
+	}
+}catch(e){//ie8
+}
+
+//if(typeof require == 'function'){
+	__webpack_unused_export__ = Node;
+	__webpack_unused_export__ = DOMException;
+	exports.DOMImplementation = DOMImplementation;
+	exports.XMLSerializer = XMLSerializer;
+//}
+
+
+/***/ }),
+
+/***/ 83308:
+/***/ ((__unused_webpack_module, exports) => {
+
+exports.entityMap = {
+       lt: '<',
+       gt: '>',
+       amp: '&',
+       quot: '"',
+       apos: "'",
+       Agrave: "À",
+       Aacute: "Á",
+       Acirc: "Â",
+       Atilde: "Ã",
+       Auml: "Ä",
+       Aring: "Å",
+       AElig: "Æ",
+       Ccedil: "Ç",
+       Egrave: "È",
+       Eacute: "É",
+       Ecirc: "Ê",
+       Euml: "Ë",
+       Igrave: "Ì",
+       Iacute: "Í",
+       Icirc: "Î",
+       Iuml: "Ï",
+       ETH: "Ð",
+       Ntilde: "Ñ",
+       Ograve: "Ò",
+       Oacute: "Ó",
+       Ocirc: "Ô",
+       Otilde: "Õ",
+       Ouml: "Ö",
+       Oslash: "Ø",
+       Ugrave: "Ù",
+       Uacute: "Ú",
+       Ucirc: "Û",
+       Uuml: "Ü",
+       Yacute: "Ý",
+       THORN: "Þ",
+       szlig: "ß",
+       agrave: "à",
+       aacute: "á",
+       acirc: "â",
+       atilde: "ã",
+       auml: "ä",
+       aring: "å",
+       aelig: "æ",
+       ccedil: "ç",
+       egrave: "è",
+       eacute: "é",
+       ecirc: "ê",
+       euml: "ë",
+       igrave: "ì",
+       iacute: "í",
+       icirc: "î",
+       iuml: "ï",
+       eth: "ð",
+       ntilde: "ñ",
+       ograve: "ò",
+       oacute: "ó",
+       ocirc: "ô",
+       otilde: "õ",
+       ouml: "ö",
+       oslash: "ø",
+       ugrave: "ù",
+       uacute: "ú",
+       ucirc: "û",
+       uuml: "ü",
+       yacute: "ý",
+       thorn: "þ",
+       yuml: "ÿ",
+       nbsp: "\u00a0",
+       iexcl: "¡",
+       cent: "¢",
+       pound: "£",
+       curren: "¤",
+       yen: "¥",
+       brvbar: "¦",
+       sect: "§",
+       uml: "¨",
+       copy: "©",
+       ordf: "ª",
+       laquo: "«",
+       not: "¬",
+       shy: "­­",
+       reg: "®",
+       macr: "¯",
+       deg: "°",
+       plusmn: "±",
+       sup2: "²",
+       sup3: "³",
+       acute: "´",
+       micro: "µ",
+       para: "¶",
+       middot: "·",
+       cedil: "¸",
+       sup1: "¹",
+       ordm: "º",
+       raquo: "»",
+       frac14: "¼",
+       frac12: "½",
+       frac34: "¾",
+       iquest: "¿",
+       times: "×",
+       divide: "÷",
+       forall: "∀",
+       part: "∂",
+       exist: "∃",
+       empty: "∅",
+       nabla: "∇",
+       isin: "∈",
+       notin: "∉",
+       ni: "∋",
+       prod: "∏",
+       sum: "∑",
+       minus: "−",
+       lowast: "∗",
+       radic: "√",
+       prop: "∝",
+       infin: "∞",
+       ang: "∠",
+       and: "∧",
+       or: "∨",
+       cap: "∩",
+       cup: "∪",
+       'int': "∫",
+       there4: "∴",
+       sim: "∼",
+       cong: "≅",
+       asymp: "≈",
+       ne: "≠",
+       equiv: "≡",
+       le: "≤",
+       ge: "≥",
+       sub: "⊂",
+       sup: "⊃",
+       nsub: "⊄",
+       sube: "⊆",
+       supe: "⊇",
+       oplus: "⊕",
+       otimes: "⊗",
+       perp: "⊥",
+       sdot: "⋅",
+       Alpha: "Α",
+       Beta: "Β",
+       Gamma: "Γ",
+       Delta: "Δ",
+       Epsilon: "Ε",
+       Zeta: "Ζ",
+       Eta: "Η",
+       Theta: "Θ",
+       Iota: "Ι",
+       Kappa: "Κ",
+       Lambda: "Λ",
+       Mu: "Μ",
+       Nu: "Ν",
+       Xi: "Ξ",
+       Omicron: "Ο",
+       Pi: "Π",
+       Rho: "Ρ",
+       Sigma: "Σ",
+       Tau: "Τ",
+       Upsilon: "Υ",
+       Phi: "Φ",
+       Chi: "Χ",
+       Psi: "Ψ",
+       Omega: "Ω",
+       alpha: "α",
+       beta: "β",
+       gamma: "γ",
+       delta: "δ",
+       epsilon: "ε",
+       zeta: "ζ",
+       eta: "η",
+       theta: "θ",
+       iota: "ι",
+       kappa: "κ",
+       lambda: "λ",
+       mu: "μ",
+       nu: "ν",
+       xi: "ξ",
+       omicron: "ο",
+       pi: "π",
+       rho: "ρ",
+       sigmaf: "ς",
+       sigma: "σ",
+       tau: "τ",
+       upsilon: "υ",
+       phi: "φ",
+       chi: "χ",
+       psi: "ψ",
+       omega: "ω",
+       thetasym: "ϑ",
+       upsih: "ϒ",
+       piv: "ϖ",
+       OElig: "Œ",
+       oelig: "œ",
+       Scaron: "Š",
+       scaron: "š",
+       Yuml: "Ÿ",
+       fnof: "ƒ",
+       circ: "ˆ",
+       tilde: "˜",
+       ensp: " ",
+       emsp: " ",
+       thinsp: " ",
+       zwnj: "‌",
+       zwj: "‍",
+       lrm: "‎",
+       rlm: "‏",
+       ndash: "–",
+       mdash: "—",
+       lsquo: "‘",
+       rsquo: "’",
+       sbquo: "‚",
+       ldquo: "“",
+       rdquo: "”",
+       bdquo: "„",
+       dagger: "†",
+       Dagger: "‡",
+       bull: "•",
+       hellip: "…",
+       permil: "‰",
+       prime: "′",
+       Prime: "″",
+       lsaquo: "‹",
+       rsaquo: "›",
+       oline: "‾",
+       euro: "€",
+       trade: "™",
+       larr: "←",
+       uarr: "↑",
+       rarr: "→",
+       darr: "↓",
+       harr: "↔",
+       crarr: "↵",
+       lceil: "⌈",
+       rceil: "⌉",
+       lfloor: "⌊",
+       rfloor: "⌋",
+       loz: "◊",
+       spades: "♠",
+       clubs: "♣",
+       hearts: "♥",
+       diams: "♦"
+};
+
+
+/***/ }),
+
+/***/ 1931:
+/***/ ((__unused_webpack_module, exports) => {
+
+//[4]   	NameStartChar	   ::=   	":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D] | [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF] | [#x3001-#xD7FF] | [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF]
+//[4a]   	NameChar	   ::=   	NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040]
+//[5]   	Name	   ::=   	NameStartChar (NameChar)*
+var nameStartChar = /[A-Z_a-z\xC0-\xD6\xD8-\xF6\u00F8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]///\u10000-\uEFFFF
+var nameChar = new RegExp("[\\-\\.0-9"+nameStartChar.source.slice(1,-1)+"\\u00B7\\u0300-\\u036F\\u203F-\\u2040]");
+var tagNamePattern = new RegExp('^'+nameStartChar.source+nameChar.source+'*(?:\:'+nameStartChar.source+nameChar.source+'*)?$');
+//var tagNamePattern = /^[a-zA-Z_][\w\-\.]*(?:\:[a-zA-Z_][\w\-\.]*)?$/
+//var handlers = 'resolveEntity,getExternalSubset,characters,endDocument,endElement,endPrefixMapping,ignorableWhitespace,processingInstruction,setDocumentLocator,skippedEntity,startDocument,startElement,startPrefixMapping,notationDecl,unparsedEntityDecl,error,fatalError,warning,attributeDecl,elementDecl,externalEntityDecl,internalEntityDecl,comment,endCDATA,endDTD,endEntity,startCDATA,startDTD,startEntity'.split(',')
+
+//S_TAG,	S_ATTR,	S_EQ,	S_ATTR_NOQUOT_VALUE
+//S_ATTR_SPACE,	S_ATTR_END,	S_TAG_SPACE, S_TAG_CLOSE
+var S_TAG = 0;//tag name offerring
+var S_ATTR = 1;//attr name offerring 
+var S_ATTR_SPACE=2;//attr name end and space offer
+var S_EQ = 3;//=space?
+var S_ATTR_NOQUOT_VALUE = 4;//attr value(no quot value only)
+var S_ATTR_END = 5;//attr value end and no space(quot end)
+var S_TAG_SPACE = 6;//(attr value end || tag end ) && (space offer)
+var S_TAG_CLOSE = 7;//closed el<el />
+
+/**
+ * Creates an error that will not be caught by XMLReader aka the SAX parser.
+ *
+ * @param {string} message
+ * @param {any?} locator Optional, can provide details about the location in the source
+ * @constructor
+ */
+function ParseError(message, locator) {
+	this.message = message
+	this.locator = locator
+	if(Error.captureStackTrace) Error.captureStackTrace(this, ParseError);
+}
+ParseError.prototype = new Error();
+ParseError.prototype.name = ParseError.name
+
+function XMLReader(){
+	
+}
+
+XMLReader.prototype = {
+	parse:function(source,defaultNSMap,entityMap){
+		var domBuilder = this.domBuilder;
+		domBuilder.startDocument();
+		_copy(defaultNSMap ,defaultNSMap = {})
+		parse(source,defaultNSMap,entityMap,
+				domBuilder,this.errorHandler);
+		domBuilder.endDocument();
+	}
+}
+function parse(source,defaultNSMapCopy,entityMap,domBuilder,errorHandler){
+	function fixedFromCharCode(code) {
+		// String.prototype.fromCharCode does not supports
+		// > 2 bytes unicode chars directly
+		if (code > 0xffff) {
+			code -= 0x10000;
+			var surrogate1 = 0xd800 + (code >> 10)
+				, surrogate2 = 0xdc00 + (code & 0x3ff);
+
+			return String.fromCharCode(surrogate1, surrogate2);
+		} else {
+			return String.fromCharCode(code);
+		}
+	}
+	function entityReplacer(a){
+		var k = a.slice(1,-1);
+		if(k in entityMap){
+			return entityMap[k]; 
+		}else if(k.charAt(0) === '#'){
+			return fixedFromCharCode(parseInt(k.substr(1).replace('x','0x')))
+		}else{
+			errorHandler.error('entity not found:'+a);
+			return a;
+		}
+	}
+	function appendText(end){//has some bugs
+		if(end>start){
+			var xt = source.substring(start,end).replace(/&#?\w+;/g,entityReplacer);
+			locator&&position(start);
+			domBuilder.characters(xt,0,end-start);
+			start = end
+		}
+	}
+	function position(p,m){
+		while(p>=lineEnd && (m = linePattern.exec(source))){
+			lineStart = m.index;
+			lineEnd = lineStart + m[0].length;
+			locator.lineNumber++;
+			//console.log('line++:',locator,startPos,endPos)
+		}
+		locator.columnNumber = p-lineStart+1;
+	}
+	var lineStart = 0;
+	var lineEnd = 0;
+	var linePattern = /.*(?:\r\n?|\n)|.*$/g
+	var locator = domBuilder.locator;
+	
+	var parseStack = [{currentNSMap:defaultNSMapCopy}]
+	var closeMap = {};
+	var start = 0;
+	while(true){
+		try{
+			var tagStart = source.indexOf('<',start);
+			if(tagStart<0){
+				if(!source.substr(start).match(/^\s*$/)){
+					var doc = domBuilder.doc;
+	    			var text = doc.createTextNode(source.substr(start));
+	    			doc.appendChild(text);
+	    			domBuilder.currentElement = text;
+				}
+				return;
+			}
+			if(tagStart>start){
+				appendText(tagStart);
+			}
+			switch(source.charAt(tagStart+1)){
+			case '/':
+				var end = source.indexOf('>',tagStart+3);
+				var tagName = source.substring(tagStart+2,end);
+				var config = parseStack.pop();
+				if(end<0){
+					
+	        		tagName = source.substring(tagStart+2).replace(/[\s<].*/,'');
+	        		errorHandler.error("end tag name: "+tagName+' is not complete:'+config.tagName);
+	        		end = tagStart+1+tagName.length;
+	        	}else if(tagName.match(/\s</)){
+	        		tagName = tagName.replace(/[\s<].*/,'');
+	        		errorHandler.error("end tag name: "+tagName+' maybe not complete');
+	        		end = tagStart+1+tagName.length;
+				}
+				var localNSMap = config.localNSMap;
+				var endMatch = config.tagName == tagName;
+				var endIgnoreCaseMach = endMatch || config.tagName&&config.tagName.toLowerCase() == tagName.toLowerCase()
+		        if(endIgnoreCaseMach){
+		        	domBuilder.endElement(config.uri,config.localName,tagName);
+					if(localNSMap){
+						for(var prefix in localNSMap){
+							domBuilder.endPrefixMapping(prefix) ;
+						}
+					}
+					if(!endMatch){
+		            	errorHandler.fatalError("end tag name: "+tagName+' is not match the current start tagName:'+config.tagName ); // No known test case
+					}
+		        }else{
+		        	parseStack.push(config)
+		        }
+				
+				end++;
+				break;
+				// end elment
+			case '?':// <?...?>
+				locator&&position(tagStart);
+				end = parseInstruction(source,tagStart,domBuilder);
+				break;
+			case '!':// <!doctype,<![CDATA,<!--
+				locator&&position(tagStart);
+				end = parseDCC(source,tagStart,domBuilder,errorHandler);
+				break;
+			default:
+				locator&&position(tagStart);
+				var el = new ElementAttributes();
+				var currentNSMap = parseStack[parseStack.length-1].currentNSMap;
+				//elStartEnd
+				var end = parseElementStartPart(source,tagStart,el,currentNSMap,entityReplacer,errorHandler);
+				var len = el.length;
+				
+				
+				if(!el.closed && fixSelfClosed(source,end,el.tagName,closeMap)){
+					el.closed = true;
+					if(!entityMap.nbsp){
+						errorHandler.warning('unclosed xml attribute');
+					}
+				}
+				if(locator && len){
+					var locator2 = copyLocator(locator,{});
+					//try{//attribute position fixed
+					for(var i = 0;i<len;i++){
+						var a = el[i];
+						position(a.offset);
+						a.locator = copyLocator(locator,{});
+					}
+					domBuilder.locator = locator2
+					if(appendElement(el,domBuilder,currentNSMap)){
+						parseStack.push(el)
+					}
+					domBuilder.locator = locator;
+				}else{
+					if(appendElement(el,domBuilder,currentNSMap)){
+						parseStack.push(el)
+					}
+				}
+				
+				
+				
+				if(el.uri === 'http://www.w3.org/1999/xhtml' && !el.closed){
+					end = parseHtmlSpecialContent(source,end,el.tagName,entityReplacer,domBuilder)
+				}else{
+					end++;
+				}
+			}
+		}catch(e){
+			if (e instanceof ParseError) {
+				throw e;
+			}
+			errorHandler.error('element parse error: '+e)
+			end = -1;
+		}
+		if(end>start){
+			start = end;
+		}else{
+			//TODO: 这里有可能sax回退，有位置错误风险
+			appendText(Math.max(tagStart,start)+1);
+		}
+	}
+}
+function copyLocator(f,t){
+	t.lineNumber = f.lineNumber;
+	t.columnNumber = f.columnNumber;
+	return t;
+}
+
+/**
+ * @see #appendElement(source,elStartEnd,el,selfClosed,entityReplacer,domBuilder,parseStack);
+ * @return end of the elementStartPart(end of elementEndPart for selfClosed el)
+ */
+function parseElementStartPart(source,start,el,currentNSMap,entityReplacer,errorHandler){
+
+	/**
+	 * @param {string} qname
+	 * @param {string} value
+	 * @param {number} startIndex
+	 */
+	function addAttribute(qname, value, startIndex) {
+		if (qname in el.attributeNames) errorHandler.fatalError('Attribute ' + qname + ' redefined')
+		el.addValue(qname, value, startIndex)
+	}
+	var attrName;
+	var value;
+	var p = ++start;
+	var s = S_TAG;//status
+	while(true){
+		var c = source.charAt(p);
+		switch(c){
+		case '=':
+			if(s === S_ATTR){//attrName
+				attrName = source.slice(start,p);
+				s = S_EQ;
+			}else if(s === S_ATTR_SPACE){
+				s = S_EQ;
+			}else{
+				//fatalError: equal must after attrName or space after attrName
+				throw new Error('attribute equal must after attrName'); // No known test case
+			}
+			break;
+		case '\'':
+		case '"':
+			if(s === S_EQ || s === S_ATTR //|| s == S_ATTR_SPACE
+				){//equal
+				if(s === S_ATTR){
+					errorHandler.warning('attribute value must after "="')
+					attrName = source.slice(start,p)
+				}
+				start = p+1;
+				p = source.indexOf(c,start)
+				if(p>0){
+					value = source.slice(start,p).replace(/&#?\w+;/g,entityReplacer);
+					addAttribute(attrName, value, start-1);
+					s = S_ATTR_END;
+				}else{
+					//fatalError: no end quot match
+					throw new Error('attribute value no end \''+c+'\' match');
+				}
+			}else if(s == S_ATTR_NOQUOT_VALUE){
+				value = source.slice(start,p).replace(/&#?\w+;/g,entityReplacer);
+				//console.log(attrName,value,start,p)
+				addAttribute(attrName, value, start);
+				//console.dir(el)
+				errorHandler.warning('attribute "'+attrName+'" missed start quot('+c+')!!');
+				start = p+1;
+				s = S_ATTR_END
+			}else{
+				//fatalError: no equal before
+				throw new Error('attribute value must after "="'); // No known test case
+			}
+			break;
+		case '/':
+			switch(s){
+			case S_TAG:
+				el.setTagName(source.slice(start,p));
+			case S_ATTR_END:
+			case S_TAG_SPACE:
+			case S_TAG_CLOSE:
+				s =S_TAG_CLOSE;
+				el.closed = true;
+			case S_ATTR_NOQUOT_VALUE:
+			case S_ATTR:
+			case S_ATTR_SPACE:
+				break;
+			//case S_EQ:
+			default:
+				throw new Error("attribute invalid close char('/')") // No known test case
+			}
+			break;
+		case ''://end document
+			errorHandler.error('unexpected end of input');
+			if(s == S_TAG){
+				el.setTagName(source.slice(start,p));
+			}
+			return p;
+		case '>':
+			switch(s){
+			case S_TAG:
+				el.setTagName(source.slice(start,p));
+			case S_ATTR_END:
+			case S_TAG_SPACE:
+			case S_TAG_CLOSE:
+				break;//normal
+			case S_ATTR_NOQUOT_VALUE://Compatible state
+			case S_ATTR:
+				value = source.slice(start,p);
+				if(value.slice(-1) === '/'){
+					el.closed  = true;
+					value = value.slice(0,-1)
+				}
+			case S_ATTR_SPACE:
+				if(s === S_ATTR_SPACE){
+					value = attrName;
+				}
+				if(s == S_ATTR_NOQUOT_VALUE){
+					errorHandler.warning('attribute "'+value+'" missed quot(")!');
+					addAttribute(attrName, value.replace(/&#?\w+;/g,entityReplacer), start)
+				}else{
+					if(currentNSMap[''] !== 'http://www.w3.org/1999/xhtml' || !value.match(/^(?:disabled|checked|selected)$/i)){
+						errorHandler.warning('attribute "'+value+'" missed value!! "'+value+'" instead!!')
+					}
+					addAttribute(value, value, start)
+				}
+				break;
+			case S_EQ:
+				throw new Error('attribute value missed!!');
+			}
+//			console.log(tagName,tagNamePattern,tagNamePattern.test(tagName))
+			return p;
+		/*xml space '\x20' | #x9 | #xD | #xA; */
+		case '\u0080':
+			c = ' ';
+		default:
+			if(c<= ' '){//space
+				switch(s){
+				case S_TAG:
+					el.setTagName(source.slice(start,p));//tagName
+					s = S_TAG_SPACE;
+					break;
+				case S_ATTR:
+					attrName = source.slice(start,p)
+					s = S_ATTR_SPACE;
+					break;
+				case S_ATTR_NOQUOT_VALUE:
+					var value = source.slice(start,p).replace(/&#?\w+;/g,entityReplacer);
+					errorHandler.warning('attribute "'+value+'" missed quot(")!!');
+					addAttribute(attrName, value, start)
+				case S_ATTR_END:
+					s = S_TAG_SPACE;
+					break;
+				//case S_TAG_SPACE:
+				//case S_EQ:
+				//case S_ATTR_SPACE:
+				//	void();break;
+				//case S_TAG_CLOSE:
+					//ignore warning
+				}
+			}else{//not space
+//S_TAG,	S_ATTR,	S_EQ,	S_ATTR_NOQUOT_VALUE
+//S_ATTR_SPACE,	S_ATTR_END,	S_TAG_SPACE, S_TAG_CLOSE
+				switch(s){
+				//case S_TAG:void();break;
+				//case S_ATTR:void();break;
+				//case S_ATTR_NOQUOT_VALUE:void();break;
+				case S_ATTR_SPACE:
+					var tagName =  el.tagName;
+					if(currentNSMap[''] !== 'http://www.w3.org/1999/xhtml' || !attrName.match(/^(?:disabled|checked|selected)$/i)){
+						errorHandler.warning('attribute "'+attrName+'" missed value!! "'+attrName+'" instead2!!')
+					}
+					addAttribute(attrName, attrName, start);
+					start = p;
+					s = S_ATTR;
+					break;
+				case S_ATTR_END:
+					errorHandler.warning('attribute space is required"'+attrName+'"!!')
+				case S_TAG_SPACE:
+					s = S_ATTR;
+					start = p;
+					break;
+				case S_EQ:
+					s = S_ATTR_NOQUOT_VALUE;
+					start = p;
+					break;
+				case S_TAG_CLOSE:
+					throw new Error("elements closed character '/' and '>' must be connected to");
+				}
+			}
+		}//end outer switch
+		//console.log('p++',p)
+		p++;
+	}
+}
+/**
+ * @return true if has new namespace define
+ */
+function appendElement(el,domBuilder,currentNSMap){
+	var tagName = el.tagName;
+	var localNSMap = null;
+	//var currentNSMap = parseStack[parseStack.length-1].currentNSMap;
+	var i = el.length;
+	while(i--){
+		var a = el[i];
+		var qName = a.qName;
+		var value = a.value;
+		var nsp = qName.indexOf(':');
+		if(nsp>0){
+			var prefix = a.prefix = qName.slice(0,nsp);
+			var localName = qName.slice(nsp+1);
+			var nsPrefix = prefix === 'xmlns' && localName
+		}else{
+			localName = qName;
+			prefix = null
+			nsPrefix = qName === 'xmlns' && ''
+		}
+		//can not set prefix,because prefix !== ''
+		a.localName = localName ;
+		//prefix == null for no ns prefix attribute 
+		if(nsPrefix !== false){//hack!!
+			if(localNSMap == null){
+				localNSMap = {}
+				//console.log(currentNSMap,0)
+				_copy(currentNSMap,currentNSMap={})
+				//console.log(currentNSMap,1)
+			}
+			currentNSMap[nsPrefix] = localNSMap[nsPrefix] = value;
+			a.uri = 'http://www.w3.org/2000/xmlns/'
+			domBuilder.startPrefixMapping(nsPrefix, value) 
+		}
+	}
+	var i = el.length;
+	while(i--){
+		a = el[i];
+		var prefix = a.prefix;
+		if(prefix){//no prefix attribute has no namespace
+			if(prefix === 'xml'){
+				a.uri = 'http://www.w3.org/XML/1998/namespace';
+			}if(prefix !== 'xmlns'){
+				a.uri = currentNSMap[prefix || '']
+				
+				//{console.log('###'+a.qName,domBuilder.locator.systemId+'',currentNSMap,a.uri)}
+			}
+		}
+	}
+	var nsp = tagName.indexOf(':');
+	if(nsp>0){
+		prefix = el.prefix = tagName.slice(0,nsp);
+		localName = el.localName = tagName.slice(nsp+1);
+	}else{
+		prefix = null;//important!!
+		localName = el.localName = tagName;
+	}
+	//no prefix element has default namespace
+	var ns = el.uri = currentNSMap[prefix || ''];
+	domBuilder.startElement(ns,localName,tagName,el);
+	//endPrefixMapping and startPrefixMapping have not any help for dom builder
+	//localNSMap = null
+	if(el.closed){
+		domBuilder.endElement(ns,localName,tagName);
+		if(localNSMap){
+			for(prefix in localNSMap){
+				domBuilder.endPrefixMapping(prefix) 
+			}
+		}
+	}else{
+		el.currentNSMap = currentNSMap;
+		el.localNSMap = localNSMap;
+		//parseStack.push(el);
+		return true;
+	}
+}
+function parseHtmlSpecialContent(source,elStartEnd,tagName,entityReplacer,domBuilder){
+	if(/^(?:script|textarea)$/i.test(tagName)){
+		var elEndStart =  source.indexOf('</'+tagName+'>',elStartEnd);
+		var text = source.substring(elStartEnd+1,elEndStart);
+		if(/[&<]/.test(text)){
+			if(/^script$/i.test(tagName)){
+				//if(!/\]\]>/.test(text)){
+					//lexHandler.startCDATA();
+					domBuilder.characters(text,0,text.length);
+					//lexHandler.endCDATA();
+					return elEndStart;
+				//}
+			}//}else{//text area
+				text = text.replace(/&#?\w+;/g,entityReplacer);
+				domBuilder.characters(text,0,text.length);
+				return elEndStart;
+			//}
+			
+		}
+	}
+	return elStartEnd+1;
+}
+function fixSelfClosed(source,elStartEnd,tagName,closeMap){
+	//if(tagName in closeMap){
+	var pos = closeMap[tagName];
+	if(pos == null){
+		//console.log(tagName)
+		pos =  source.lastIndexOf('</'+tagName+'>')
+		if(pos<elStartEnd){//忘记闭合
+			pos = source.lastIndexOf('</'+tagName)
+		}
+		closeMap[tagName] =pos
+	}
+	return pos<elStartEnd;
+	//} 
+}
+function _copy(source,target){
+	for(var n in source){target[n] = source[n]}
+}
+function parseDCC(source,start,domBuilder,errorHandler){//sure start with '<!'
+	var next= source.charAt(start+2)
+	switch(next){
+	case '-':
+		if(source.charAt(start + 3) === '-'){
+			var end = source.indexOf('-->',start+4);
+			//append comment source.substring(4,end)//<!--
+			if(end>start){
+				domBuilder.comment(source,start+4,end-start-4);
+				return end+3;
+			}else{
+				errorHandler.error("Unclosed comment");
+				return -1;
+			}
+		}else{
+			//error
+			return -1;
+		}
+	default:
+		if(source.substr(start+3,6) == 'CDATA['){
+			var end = source.indexOf(']]>',start+9);
+			domBuilder.startCDATA();
+			domBuilder.characters(source,start+9,end-start-9);
+			domBuilder.endCDATA() 
+			return end+3;
+		}
+		//<!DOCTYPE
+		//startDTD(java.lang.String name, java.lang.String publicId, java.lang.String systemId) 
+		var matchs = split(source,start);
+		var len = matchs.length;
+		if(len>1 && /!doctype/i.test(matchs[0][0])){
+			var name = matchs[1][0];
+			var pubid = false;
+			var sysid = false;
+			if(len>3){
+				if(/^public$/i.test(matchs[2][0])){
+					pubid = matchs[3][0];
+					sysid = len>4 && matchs[4][0];
+				}else if(/^system$/i.test(matchs[2][0])){
+					sysid = matchs[3][0];
+				}
+			}
+			var lastMatch = matchs[len-1]
+			domBuilder.startDTD(name, pubid, sysid);
+			domBuilder.endDTD();
+			
+			return lastMatch.index+lastMatch[0].length
+		}
+	}
+	return -1;
+}
+
+
+
+function parseInstruction(source,start,domBuilder){
+	var end = source.indexOf('?>',start);
+	if(end){
+		var match = source.substring(start,end).match(/^<\?(\S*)\s*([\s\S]*?)\s*$/);
+		if(match){
+			var len = match[0].length;
+			domBuilder.processingInstruction(match[1], match[2]) ;
+			return end+2;
+		}else{//error
+			return -1;
+		}
+	}
+	return -1;
+}
+
+function ElementAttributes(){
+	this.attributeNames = {}
+}
+ElementAttributes.prototype = {
+	setTagName:function(tagName){
+		if(!tagNamePattern.test(tagName)){
+			throw new Error('invalid tagName:'+tagName)
+		}
+		this.tagName = tagName
+	},
+	addValue:function(qName, value, offset) {
+		if(!tagNamePattern.test(qName)){
+			throw new Error('invalid attribute:'+qName)
+		}
+		this.attributeNames[qName] = this.length;
+		this[this.length++] = {qName:qName,value:value,offset:offset}
+	},
+	length:0,
+	getLocalName:function(i){return this[i].localName},
+	getLocator:function(i){return this[i].locator},
+	getQName:function(i){return this[i].qName},
+	getURI:function(i){return this[i].uri},
+	getValue:function(i){return this[i].value}
+//	,getIndex:function(uri, localName)){
+//		if(localName){
+//			
+//		}else{
+//			var qName = uri
+//		}
+//	},
+//	getValue:function(){return this.getValue(this.getIndex.apply(this,arguments))},
+//	getType:function(uri,localName){}
+//	getType:function(i){},
+}
+
+
+
+function split(source,start){
+	var match;
+	var buf = [];
+	var reg = /'[^']+'|"[^"]+"|[^\s<>\/=]+=?|(\/?\s*>|<)/g;
+	reg.lastIndex = start;
+	reg.exec(source);//skip <
+	while(match = reg.exec(source)){
+		buf.push(match);
+		if(match[1])return buf;
+	}
+}
+
+exports.XMLReader = XMLReader;
+exports.ParseError = ParseError;
+
+
+/***/ }),
+
 /***/ 71779:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -82857,6 +88635,636 @@ exports.setConfig = setConfig;
 
 /***/ }),
 
+/***/ 6672:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const logger_1 = __nccwpck_require__(7893);
+const exec = __importStar(__nccwpck_require__(95236));
+const github_1 = __nccwpck_require__(93228);
+const core = __importStar(__nccwpck_require__(37484));
+const fs = __importStar(__nccwpck_require__(79896));
+const path = __importStar(__nccwpck_require__(16928));
+const UftoTestType_1 = __nccwpck_require__(5720);
+const ToolType_1 = __nccwpck_require__(22744);
+const xmldom_1 = __nccwpck_require__(83503);
+const ole_doc_1 = __nccwpck_require__(38796);
+const GUI_TEST_FILE = 'test.tsp';
+const API_ACTIONS_FILE = "actions.xml"; //api test
+const COMPONENT_INFO_ENTRY = "ComponentInfo";
+const _logger = new logger_1.Logger('Discovery');
+const UFT_COMPONENT_NODE_NAME = "Component";
+const UFT_DEPENDENCY_NODE_NAME = "Dependency";
+const UFT_ACTION_TYPE_ATTR = "Type";
+const UFT_ACTION_KIND_ATTR = "Kind";
+const UFT_ACTION_SCOPE_ATTR = "Scope";
+const UFT_ACTION_LOGICAL_ATTR = "Logical";
+const UFT_ACTION_TYPE_VALUE = "1";
+const UFT_ACTION_KIND_VALUE = "16";
+const UFT_ACTION_SCOPE_VALUE = "0";
+const ACTION_0 = "action0";
+const RESOURCE_MTR_FILE = "resource.mtr";
+const UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME = "ArgumentsCollection";
+const UFT_PARAM_ARG_NAME_NODE_NAME = "ArgName";
+const UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME = "ArgDefaultValue";
+const UFT_ACTION_DESCRIPTION_NODE_NAME = "Description";
+class TspParseError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "TspParseError";
+    }
+}
+class Discovery {
+    constructor(toolType) {
+        this._tests = [];
+        _logger.info('Discovery constructor ...');
+        this._toolType = toolType;
+    }
+    async startFullScanning(repoUrl) {
+        _logger.info('BEGIN startFullScanning ...');
+        core.info('BEGIN startFullScanning ...');
+        if (!repoUrl || repoUrl?.trim() === '') {
+            throw new Error('Repository URL is required!');
+        }
+        const { workDir, didFullCheckout } = await this.checkoutRepo();
+        if (didFullCheckout) {
+            await this.doFullDiscovery(workDir);
+        }
+        core.info('END startFullScanning ...');
+    }
+    async doFullDiscovery(workDir) {
+        await this.scanFileSystemRecursively(workDir, workDir);
+    }
+    async scanFileSystemRecursively(root, fullPathSubDir) {
+        const stats = await fs.promises.stat(fullPathSubDir);
+        if (stats.isDirectory()) {
+            const items = await fs.promises.readdir(fullPathSubDir) ?? [];
+            const testType = await this.isUftoTestDir(items);
+            if (testType.isNone()) {
+                for (const item of items) {
+                    const fullPathSubDirOrFile = path.join(fullPathSubDir, item);
+                    const stats = await fs.promises.stat(fullPathSubDirOrFile);
+                    if (stats.isDirectory()) {
+                        await this.scanFileSystemRecursively(root, fullPathSubDirOrFile);
+                    }
+                    else if (this.isUftoDataTableFile(item)) {
+                        const dataTable = this.createDataTable(root, fullPathSubDirOrFile);
+                    }
+                }
+            }
+            else if (!(this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
+                const automTest = await this.createAutomatedTest(root, fullPathSubDir, testType);
+            }
+        }
+    }
+    async createAutomatedTest(root, fullPathSubDir, testType) {
+        const testName = path.basename(fullPathSubDir);
+        const relativePath = this.getRelativePath(root, fullPathSubDir);
+        let packageName = "";
+        if (relativePath.length > testName.length) {
+            const segments = relativePath.split(path.sep);
+            packageName = segments.slice(0, -1).join(path.sep);
+        }
+        const test = {
+            id: '',
+            name: testName,
+            packageName: packageName,
+            isMoved: false,
+            uftOneTestType: testType,
+            missingScmRepository: false,
+            missingTestRunner: false,
+            executable: true,
+            description: '',
+            actions: [],
+            octaneStatus: 0 /* OctaneStatus.NEW */
+        };
+        const doc = await this.getDocument(fullPathSubDir, testType);
+        let descr = this.getTestDescription(doc, testType);
+        descr = this.convertToHtmlFormatIfRequired(descr);
+        test.description = descr ?? "";
+        // discover actions only for mbt toolType and gui tests
+        if (this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.GUI) {
+            const actionPathPrefix = this.getActionPathPrefix(test, false);
+            const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, testName, fullPathSubDir);
+            test.actions = actions;
+        }
+        return test;
+    }
+    async parseActionsAndParameters(doc, actionPathPrefix, testName, dirPath) {
+        const actions = [];
+        if (!doc) {
+            _logger.warn("received null gui test document, actions will not be parsed");
+        }
+        else {
+            const actionMap = this.parseActionComponents(doc, testName);
+            this.fillActionsLogicalName(doc, actionMap, actionPathPrefix);
+            actions.push(...Array.from(actionMap.values()));
+            try {
+                await this.readParameters(dirPath, actionMap);
+            }
+            catch (error) {
+                _logger.error(`Failed to parse action's parameters: ${error?.message}`);
+            }
+        }
+        return actions;
+    }
+    fillActionsLogicalName(document, actionMap, actionPathPrefix) {
+        const dependencyNodes = document.getElementsByTagName(UFT_DEPENDENCY_NODE_NAME);
+        for (let i = 0; i < dependencyNodes.length; i++) {
+            const dependencyNode = dependencyNodes.item(i);
+            if (dependencyNode) {
+                const attributes = dependencyNode.attributes;
+                const type = attributes.getNamedItem(UFT_ACTION_TYPE_ATTR)?.nodeValue;
+                const kind = attributes.getNamedItem(UFT_ACTION_KIND_ATTR)?.nodeValue;
+                const scope = attributes.getNamedItem(UFT_ACTION_SCOPE_ATTR)?.nodeValue;
+                const logicalName = attributes.getNamedItem(UFT_ACTION_LOGICAL_ATTR)?.nodeValue;
+                if (type === UFT_ACTION_TYPE_VALUE && kind === UFT_ACTION_KIND_VALUE && scope === UFT_ACTION_SCOPE_VALUE && logicalName) {
+                    const dependencyStr = dependencyNode.textContent;
+                    const actionName = dependencyStr?.substring(0, dependencyStr.indexOf("\\"));
+                    if (actionName && actionName.toLowerCase() !== ACTION_0) { // action0 is not relevant
+                        const action = actionMap.get(actionName);
+                        if (action) {
+                            action.logicalName = logicalName;
+                            this.setActionPath(action, actionPathPrefix);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    setActionPath(action, actionPathPrefix) {
+        const actionName = action.logicalName || action.name;
+        action.repositoryPath = `${actionPathPrefix}\\${action.name}:${actionName}`;
+    }
+    async readParameters(dirPath, actionMap) {
+        const documentBuilder = new xmldom_1.DOMParser();
+        for (const [actionName, action] of actionMap.entries()) {
+            const actionFolder = `${dirPath}/${actionName}`;
+            try {
+                const resourceMtrFile = await this.getFileIfExist(actionFolder, RESOURCE_MTR_FILE);
+                if (resourceMtrFile) {
+                    await this.parseActionMtrFile(resourceMtrFile, documentBuilder, action);
+                }
+                else {
+                    console.warn(`resource.mtr file for action ${actionName} does not exist`);
+                }
+            }
+            catch (error) {
+                action.parameters = [];
+                console.warn(`folder for action ${actionName} does not exist`, error);
+            }
+        }
+    }
+    parseActionComponents(document, testName) {
+        const actionMap = new Map();
+        const componentNodes = document.getElementsByTagName(UFT_COMPONENT_NODE_NAME);
+        for (let i = 0; i < componentNodes.length; i++) {
+            const componentNode = componentNodes.item(i);
+            if (componentNode) {
+                const actionName = componentNode.textContent;
+                if (actionName && actionName.toLowerCase() !== ACTION_0) {
+                    const action = {
+                        name: actionName,
+                        testName: testName,
+                        octaneStatus: 0 /* OctaneStatus.NEW */
+                    };
+                    actionMap.set(actionName, action);
+                }
+            }
+        }
+        return actionMap;
+    }
+    async parseActionMtrFile(resourceMtrFile, documentBuilder, action) {
+        const parameters = [];
+        const xmlContent = await fs.promises.readFile(resourceMtrFile, 'utf-8');
+        const document = documentBuilder.parseFromString(xmlContent, 'application/xml');
+        const argumentsCollectionElement = document.getElementsByTagName(UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME);
+        if (argumentsCollectionElement.length > 0) {
+            const argumentsCollectionItem = argumentsCollectionElement.item(0);
+            const childArgumentElements = argumentsCollectionItem?.childNodes;
+            if (childArgumentElements) {
+                for (let i = 0; i < childArgumentElements.length; i++) {
+                    const argumentElement = childArgumentElements.item(i);
+                    const parameter = {
+                        name: argumentElement.getElementsByTagName(UFT_PARAM_ARG_NAME_NODE_NAME).item(0)?.textContent ?? '',
+                        direction: parseInt(argumentElement.getElementsByTagName("ArgDirection").item(0)?.textContent ?? '0', 10),
+                        octaneStatus: 0 /* OctaneStatus.NEW */
+                    };
+                    const defaultValueNode = argumentElement.getElementsByTagName(UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME).item(0);
+                    if (defaultValueNode) {
+                        parameter.defaultValue = defaultValueNode.textContent || '';
+                    }
+                    parameters.push(parameter);
+                }
+            }
+        }
+        action.parameters = parameters;
+        action.description = document.getElementsByTagName(UFT_ACTION_DESCRIPTION_NODE_NAME).item(0)?.textContent ?? '';
+    }
+    convertToHtmlFormatIfRequired(description) {
+        if (description === null || !description.includes('\n')) {
+            return description;
+        }
+        // aaa\nbbb => <html><body><p>aaa</p><p>bbb</p></body></html>
+        const lines = description.split('\n');
+        const sb = [];
+        sb.push('<html><body>');
+        for (const line of lines) {
+            sb.push('<p>', line, '</p>\n');
+        }
+        sb.push('</body></html>');
+        return sb.join('');
+    }
+    getTestDescription(doc, testType) {
+        if (doc == null || testType.isNone()) {
+            return null;
+        }
+        let description = "";
+        if (testType == UftoTestType_1.UftoTestType.GUI) {
+            description = doc.getElementsByTagName("Description").item(0)?.textContent ?? "";
+        }
+        else {
+            description = this.getTestDescriptionFromAPITest(doc) ?? "";
+        }
+        if (description != null) {
+            description = description.trim();
+        }
+        return description;
+    }
+    getTestDescriptionFromAPITest(document) {
+        // Actions.xml
+        // <Actions>
+        // <Action internalName="MainAction" userDefinedName="APITest1" description="radi end test description" />
+        // </Actions>
+        const actions = document.getElementsByTagName("Action");
+        for (let i = 0; i < actions.length; i++) {
+            const action = actions.item(i);
+            if (action) {
+                const attributes = action.attributes;
+                const internalNameAttr = attributes.getNamedItem("internalName");
+                if (internalNameAttr && internalNameAttr.nodeValue === "MainAction") {
+                    const descriptionAttr = attributes.getNamedItem("description");
+                    if (descriptionAttr) {
+                        return descriptionAttr.nodeValue;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+    async getDocument(dirPath, testType) {
+        if (testType === UftoTestType_1.UftoTestType.GUI) {
+            const doc = await this.getGuiTestDocument(dirPath);
+            if (!doc) {
+                throw new TspParseError("No document parsed");
+            }
+            // Additional security checks
+            const entities = doc.getElementsByTagName("ENTITY");
+            if (entities.length > 0) {
+                throw new TspParseError("External entities detected in XML");
+            }
+            return doc;
+        }
+        else {
+            return this.getApiTestDocument(dirPath);
+        }
+        ;
+    }
+    async getFileIfExist(dirPath, fileName) {
+        const filePath = `${dirPath}/${fileName}`;
+        try {
+            await fs.promises.access(filePath);
+            return filePath;
+        }
+        catch {
+            _logger.warn(`File ${filePath} does not exist`);
+            return null;
+        }
+    }
+    async extractXmlContentFromTspFile(filePath) {
+        try {
+            const oleDoc = new ole_doc_1.OleCompoundDoc(filePath);
+            await oleDoc.read();
+            const entries = oleDoc.storage;
+            let xmlData = "";
+            // Find ComponentInfo entry
+            for (const entry of entries) {
+                if (entry.name === COMPONENT_INFO_ENTRY) {
+                    if (entry.isDirectory) {
+                        _logger.debug(`Found directory entry for ${COMPONENT_INFO_ENTRY}`);
+                        continue;
+                    }
+                    // Read document entry
+                    const content = await new Promise((resolve, reject) => {
+                        const stream = oleDoc.stream(entry);
+                        const chunks = [];
+                        stream.on('data', (chunk) => chunks.push(chunk));
+                        stream.on('end', () => resolve(Buffer.concat(chunks)));
+                        stream.on('error', reject);
+                    });
+                    // Convert from UnicodeLE and clean up
+                    xmlData = content.toString('utf16le');
+                    const xmlStart = xmlData.indexOf('<');
+                    if (xmlStart >= 0) {
+                        xmlData = xmlData.substring(xmlStart);
+                    }
+                    xmlData = xmlData.replace(/\u0000/g, '');
+                    _logger.info(`Successfully extracted ${xmlData.length} characters from ComponentInfo`);
+                    break;
+                }
+            }
+            await oleDoc.close();
+            return xmlData;
+        }
+        catch (error) {
+            _logger.warn(`Failed to extract XML content: ${error}`);
+            throw new TspParseError(`TSP extraction failed: ${error}`);
+        }
+    }
+    getSecureDocumentParser() {
+        const parser = new xmldom_1.DOMParser({
+            locator: {}, // Enable error location tracking
+            errorHandler: {
+                warning: (msg) => _logger.warn(`XML Parse Warning: ${msg}`),
+                error: (msg) => _logger.error(`XML Parse Error: ${msg}`),
+                fatalError: (msg) => { throw new TspParseError(`Fatal XML Parse Error: ${msg}`); }
+            }
+        });
+        return parser;
+    }
+    async getGuiTestDocument(dirPath) {
+        try {
+            const tspTestFile = await this.getFileIfExist(dirPath, GUI_TEST_FILE);
+            if (!tspTestFile) {
+                return null;
+            }
+            const xmlContent = await this.extractXmlContentFromTspFile(tspTestFile);
+            if (!xmlContent) {
+                _logger.warn("No valid XML content extracted from TSP file");
+                return null;
+            }
+            const parser = this.getSecureDocumentParser();
+            const doc = parser.parseFromString(xmlContent, 'text/xml');
+            if (doc.documentElement.nodeName === "parsererror") {
+                throw new TspParseError("Invalid XML content");
+            }
+            return doc;
+        }
+        catch (error) {
+            _logger.error("Error parsing document:" + error?.message);
+            throw error instanceof TspParseError ? error : new TspParseError(`Failed to parse document: ${error}`);
+        }
+    }
+    async getApiTestDocument(dirPath) {
+        try {
+            const actionsFile = await this.getFileIfExist(dirPath, API_ACTIONS_FILE);
+            if (actionsFile == null) {
+                return null;
+            }
+            const xmlContent = await fs.promises.readFile(actionsFile, 'utf8');
+            const parser = this.getSecureDocumentParser();
+            const doc = parser.parseFromString(xmlContent, 'text/xml');
+            if (doc.documentElement.nodeName === "parsererror") {
+                throw new Error("Invalid XML content");
+            }
+            return doc;
+        }
+        catch (error) {
+            _logger.error("Error parsing document:" + error?.message);
+            throw error;
+        }
+    }
+    // in case a test was moved and we need the action path prefix before the move then set orgPath to true
+    getActionPathPrefix(test, orgPath) {
+        return this.getTestPathPrefix(test, orgPath) + "\\%s:%s"; // TODO: check if this is the correct format
+    }
+    // constructs a test path that contains only the test package and name
+    getTestPathPrefix(test, orgPath) {
+        const testPackage = (orgPath ? test.oldPackageName : test.packageName) ?? "";
+        const testName = orgPath ? test.oldName : test.name;
+        return (testPackage.trim() == "" ? "" : testPackage + "\\") + testName;
+    }
+    isUftoDataTableFile(file) {
+        return path.extname(file) === ".xlsx" || path.extname(file) === ".xls";
+    }
+    async isUftoTestDir(paths) {
+        if (paths == null || paths.length === 0) {
+            return UftoTestType_1.UftoTestType.None;
+        }
+        for (const p of paths) {
+            const ext = path.extname(p).toLowerCase();
+            if (ext === ".st") {
+                return UftoTestType_1.UftoTestType.API;
+            }
+            if (ext === ".tsp") {
+                return UftoTestType_1.UftoTestType.GUI;
+            }
+        }
+        return UftoTestType_1.UftoTestType.None;
+    }
+    createDataTable(root, fullPathFile) {
+        const resourceFile = {
+            name: fullPathFile,
+            relativePath: this.getRelativePath(root, fullPathFile),
+            octaneStatus: 0 /* OctaneStatus.NEW */,
+            id: '',
+            oldName: '',
+            oldRelativePath: '',
+            isMoved: false,
+            changeSetSrc: '',
+            changeSetDst: ''
+        };
+        return resourceFile;
+    }
+    getRelativePath(root, subPath) {
+        return path.relative(root, subPath);
+    }
+    async checkoutRepo() {
+        core.info('BEGIN checkoutRepo ...');
+        const token = core.getInput('githubToken', { required: true });
+        const { owner, repo } = github_1.context.repo;
+        const serverUrl = github_1.context.serverUrl;
+        let didFullCheckout = false;
+        core.info(`Working directory: ${process.cwd()}`);
+        const workDir = process.cwd();
+        const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+        const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
+        core.debug(`Expected authRepoUrl: ${authRepoUrl}`);
+        // Filter process.env to exclude undefined values
+        const filteredEnv = {};
+        for (const [key, value] of Object.entries(process.env)) {
+            if (value !== undefined) {
+                filteredEnv[key] = value;
+            }
+        }
+        // Configure Git options with common properties
+        const gitOptions = {
+            cwd: workDir, // Common working directory
+            ignoreReturnCode: true, // Ignore non-zero exit codes by default
+            silent: false, // Keep false for debugging
+            env: filteredEnv, // Use filtered env with only string values
+            listeners: {
+                stderr: (data) => core.debug(data.toString().trim())
+            }
+        };
+        // Check if _work\ufto-tests is a Git repository
+        const gitDir = path.join(workDir, '.git');
+        if (fs.existsSync(gitDir)) {
+            core.info('Working directory is a Git repo, checking remote URL...');
+            // Get the current remote URL with specific stdout capture
+            let currentRemoteUrl = '';
+            const getUrlOutput = [];
+            const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
+                ...gitOptions,
+                listeners: {
+                    ...gitOptions.listeners,
+                    stdout: (data) => getUrlOutput.push(data.toString().trim())
+                }
+            });
+            if (getUrlExitCode === 0) {
+                currentRemoteUrl = getUrlOutput.join('').trim();
+                core.debug(`Current remote URL: ${currentRemoteUrl}`);
+            }
+            else {
+                core.warning('Failed to get current remote URL, proceeding with set-url');
+            }
+            // Compare current URL with base repoUrl (ignoring token)
+            if (currentRemoteUrl && currentRemoteUrl.includes(repoUrl)) {
+                core.info('Remote URL base matches, updating with current token...');
+                const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
+                if (setUrlExitCode !== 0) {
+                    throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+                }
+            }
+            else {
+                core.info('Remote URL does not match, setting to authenticated URL...');
+                const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
+                if (setUrlExitCode !== 0) {
+                    throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+                }
+            }
+            // Perform the pull
+            core.info('Pulling updates...');
+            const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
+            if (pullExitCode !== 0) {
+                throw new Error(`git pull failed with exit code ${pullExitCode}`);
+            }
+        }
+        else {
+            core.info('Cloning repository directly into _work\\ufto-tests...');
+            const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
+            if (cloneExitCode !== 0) {
+                throw new Error(`git clone failed with exit code ${cloneExitCode}`);
+            }
+            didFullCheckout = true;
+        }
+        core.info('END checkoutRepo ...');
+        return { workDir, didFullCheckout };
+    }
+}
+exports["default"] = Discovery;
+
+
+/***/ }),
+
+/***/ 22744:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.ToolType = void 0;
+class ToolType {
+    constructor(toolType) {
+        this.toolType = toolType;
+    }
+    isNone() {
+        return this.toolType === ToolType.None.toolType;
+    }
+    // Optional: Get all values
+    static values() {
+        return [ToolType.UFT, ToolType.MBT, ToolType.None];
+    }
+    // Optional: Get by type string
+    static fromType(type) {
+        return ToolType.values().find(value => value.toolType === type.toLowerCase()) || ToolType.None;
+    }
+}
+exports.ToolType = ToolType;
+ToolType.UFT = new ToolType("uft");
+ToolType.MBT = new ToolType("mbt");
+ToolType.None = new ToolType("none");
+//export type ToolTypeWrapper = typeof ToolType.UFT | typeof ToolType.MBT | typeof ToolType.None;
+
+
+/***/ }),
+
+/***/ 5720:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UftoTestType = void 0;
+class UftoTestType {
+    constructor(testType) {
+        this.testType = testType;
+    }
+    isNone() {
+        return this.testType === UftoTestType.None.testType;
+    }
+    // Optional: Get all values
+    static values() {
+        return [UftoTestType.GUI, UftoTestType.API, UftoTestType.None];
+    }
+    // Optional: Get by type string
+    static fromType(type) {
+        return UftoTestType.values().find(value => value.testType === type.toLowerCase());
+    }
+}
+exports.UftoTestType = UftoTestType;
+UftoTestType.GUI = new UftoTestType("gui");
+UftoTestType.API = new UftoTestType("api");
+UftoTestType.None = new UftoTestType("none");
+
+
+/***/ }),
+
 /***/ 37751:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -82934,19 +89342,19 @@ const ciEventsService_1 = __nccwpck_require__(80039);
 const logger_1 = __nccwpck_require__(7893);
 const github_1 = __nccwpck_require__(93228);
 const core = __importStar(__nccwpck_require__(37484));
-const exec = __importStar(__nccwpck_require__(95236));
-const fs = __importStar(__nccwpck_require__(79896));
-const path = __importStar(__nccwpck_require__(16928));
+const Discovery_1 = __importDefault(__nccwpck_require__(6672));
+const ToolType_1 = __nccwpck_require__(22744);
 const LOGGER = new logger_1.Logger('eventHandler');
+const UFT = 'uft';
 const handleCurrentEvent = async () => {
     core.info('BEGIN handleEvent ...');
     const event = github_1.context.payload;
     const eventName = github_1.context.eventName;
     if (event) {
-        core.info(`event = ${JSON.stringify(event)}`);
+        core.debug(`event = ${JSON.stringify(event)}`);
     }
     else {
-        core.info('event is null or undefined');
+        core.debug('event is null or undefined');
     }
     core.info(`eventType = ${event?.action || eventName}`);
     const eventType = (0, ciEventsService_1.getEventType)(event?.action || eventName);
@@ -82968,7 +89376,12 @@ const handleCurrentEvent = async () => {
     core.info(`Current repository URL: ${repoUrl}`);
     switch (eventType) {
         case "workflow_run" /* ActionsEventType.WORKFLOW_RUN */:
-            await startFullScanning(repoUrl);
+            let toolType = core.getInput('testingToolType') ?? UFT;
+            if (toolType.trim() == "") {
+                toolType = UFT;
+            }
+            const discovery = new Discovery_1.default(ToolType_1.ToolType.fromType(toolType));
+            await discovery.startFullScanning(repoUrl);
             break;
         case "push" /* ActionsEventType.PUSH */:
             core.info('WORKFLOW_STARTED...');
@@ -83008,94 +89421,6 @@ const hasExecutorParameters = (configParameters) => {
     const foundNames = new Set(configParameters.map(param => param.name));
     return requiredParameters.every(name => foundNames.has(name));
 };
-async function startFullScanning(repoUrl) {
-    core.info('BEGIN startFullScanning ...');
-    if (!repoUrl || repoUrl?.trim() === '') {
-        throw new Error('Repository URL is required!');
-    }
-    const workDir = await checkoutRepo();
-    core.info('END startFullScanning ...');
-}
-async function checkoutRepo() {
-    core.info('BEGIN checkoutRepo ...');
-    const token = core.getInput('githubToken', { required: true });
-    const { owner, repo } = github_1.context.repo;
-    const serverUrl = github_1.context.serverUrl;
-    core.info(`Working directory: ${process.cwd()}`);
-    const workDir = process.cwd();
-    const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-    const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
-    core.debug(`Expected authRepoUrl: ${authRepoUrl}`);
-    // Filter process.env to exclude undefined values
-    const filteredEnv = {};
-    for (const [key, value] of Object.entries(process.env)) {
-        if (value !== undefined) {
-            filteredEnv[key] = value;
-        }
-    }
-    // Configure Git options with common properties
-    const gitOptions = {
-        cwd: workDir, // Common working directory
-        ignoreReturnCode: true, // Ignore non-zero exit codes by default
-        silent: false, // Keep false for debugging
-        env: filteredEnv, // Use filtered env with only string values
-        listeners: {
-            stderr: (data) => core.debug(data.toString().trim())
-        }
-    };
-    // Check if _work\ufto-tests is a Git repository
-    const gitDir = path.join(workDir, '.git');
-    if (fs.existsSync(gitDir)) {
-        core.info('Working directory is a Git repo, checking remote URL...');
-        // Get the current remote URL with specific stdout capture
-        let currentRemoteUrl = '';
-        const getUrlOutput = [];
-        const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
-            ...gitOptions,
-            listeners: {
-                ...gitOptions.listeners,
-                stdout: (data) => getUrlOutput.push(data.toString().trim())
-            }
-        });
-        if (getUrlExitCode === 0) {
-            currentRemoteUrl = getUrlOutput.join('').trim();
-            core.debug(`Current remote URL: ${currentRemoteUrl}`);
-        }
-        else {
-            core.warning('Failed to get current remote URL, proceeding with set-url');
-        }
-        // Compare current URL with base repoUrl (ignoring token)
-        if (currentRemoteUrl && currentRemoteUrl.includes(repoUrl)) {
-            core.info('Remote URL base matches, updating with current token...');
-            const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
-            if (setUrlExitCode !== 0) {
-                throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
-            }
-        }
-        else {
-            core.info('Remote URL does not match, setting to authenticated URL...');
-            const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
-            if (setUrlExitCode !== 0) {
-                throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
-            }
-        }
-        // Perform the pull
-        core.info('Pulling updates...');
-        const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
-        if (pullExitCode !== 0) {
-            throw new Error(`git pull failed with exit code ${pullExitCode}`);
-        }
-    }
-    else {
-        core.info('Cloning repository directly into _work\\ufto-tests...');
-        const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
-        if (cloneExitCode !== 0) {
-            throw new Error(`git clone failed with exit code ${cloneExitCode}`);
-        }
-    }
-    core.info('END checkoutRepo ...');
-    return workDir;
-}
 
 
 /***/ }),
