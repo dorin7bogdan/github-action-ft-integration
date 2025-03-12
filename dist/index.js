@@ -89420,8 +89420,8 @@ const handleCurrentEvent = async () => {
             await discovery.startFullScanning(repoUrl);
             const tests = discovery.getTests();
             const scmResxFiles = discovery.getScmResxFiles();
-            _logger.debug("Tests: ", tests);
-            _logger.debug("Resource files: ", scmResxFiles);
+            _logger.debug(`Tests: ${tests.length}`, tests);
+            _logger.debug(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
             break;
         case "push" /* ActionsEventType.PUSH */:
             core.info('WORKFLOW_STARTED...');

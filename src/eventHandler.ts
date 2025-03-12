@@ -98,8 +98,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
       const tests = discovery.getTests();
       const scmResxFiles = discovery.getScmResxFiles();
 
-      _logger.debug("Tests: ", tests);
-      _logger.debug("Resource files: ", scmResxFiles);
+      _logger.debug(`Tests: ${tests.length}`, tests);
+      _logger.debug(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
 
       break;
     case ActionsEventType.PUSH:
