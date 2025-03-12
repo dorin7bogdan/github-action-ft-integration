@@ -88699,10 +88699,12 @@ const UFT_ACTION_KIND_VALUE = "16";
 const UFT_ACTION_SCOPE_VALUE = "0";
 const ACTION_0 = "action0";
 const RESOURCE_MTR_FILE = "resource.mtr";
-const UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME = "ArgumentsCollection";
+const UFT_PARAM_ARGS_COLL_NODE_NAME = "ArgumentsCollection";
 const UFT_PARAM_ARG_NAME_NODE_NAME = "ArgName";
 const UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME = "ArgDefaultValue";
 const UFT_ACTION_DESCRIPTION_NODE_NAME = "Description";
+const ARG_DIRECTION = "ArgDirection";
+const TEXT_XML = "text/xml";
 const _folders2skip = [".git", ".github"];
 class TspParseError extends Error {
     constructor(message) {
@@ -88762,7 +88764,7 @@ class Discovery {
                 }
             }
         }
-        else if (!(this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
+        else if (!(this._toolType === ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
             const automTest = await this.createAutomatedTest(root, subDirPath, testType);
             this._tests.push(automTest);
         }
@@ -88842,13 +88844,12 @@ class Discovery {
         action.repositoryPath = `${actionPathPrefix}\\${action.name}:${actionName}`;
     }
     async readParameters(dirPath, actionMap) {
-        const documentBuilder = new xmldom_1.DOMParser();
         for (const [actionName, action] of actionMap.entries()) {
             const actionFolder = `${dirPath}/${actionName}`;
             try {
                 const resourceMtrFile = await this.getFileIfExist(actionFolder, RESOURCE_MTR_FILE);
                 if (resourceMtrFile) {
-                    await this.parseActionMtrFile(resourceMtrFile, documentBuilder, action);
+                    await this.parseActionMtrFile(resourceMtrFile, action);
                 }
                 else {
                     console.warn(`resource.mtr file for action ${actionName} does not exist`);
@@ -88879,32 +88880,33 @@ class Discovery {
         }
         return actionMap;
     }
-    async parseActionMtrFile(resourceMtrFile, documentBuilder, action) {
-        const parameters = [];
-        const xmlContent = await fs.promises.readFile(resourceMtrFile, 'utf-8');
-        const document = documentBuilder.parseFromString(xmlContent, 'application/xml');
-        const argumentsCollectionElement = document.getElementsByTagName(UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME);
+    async parseActionMtrFile(resourceMtrFile, action) {
+        const params = [];
+        const xmlContent = await this.extractXmlFromTspOrMtrFile(resourceMtrFile);
+        const parser = this.getSecureDocumentParser();
+        const doc = parser.parseFromString(xmlContent, TEXT_XML);
+        const argumentsCollectionElement = doc.getElementsByTagName(UFT_PARAM_ARGS_COLL_NODE_NAME);
         if (argumentsCollectionElement.length > 0) {
             const argumentsCollectionItem = argumentsCollectionElement.item(0);
             const childArgumentElements = argumentsCollectionItem?.childNodes;
             if (childArgumentElements) {
                 for (let i = 0; i < childArgumentElements.length; i++) {
-                    const argumentElement = childArgumentElements.item(i);
-                    const parameter = {
-                        name: argumentElement.getElementsByTagName(UFT_PARAM_ARG_NAME_NODE_NAME).item(0)?.textContent ?? '',
-                        direction: parseInt(argumentElement.getElementsByTagName("ArgDirection").item(0)?.textContent ?? '0', 10),
+                    const argElem = childArgumentElements.item(i);
+                    const param = {
+                        name: argElem.getElementsByTagName(UFT_PARAM_ARG_NAME_NODE_NAME).item(0)?.textContent ?? '',
+                        direction: parseInt(argElem.getElementsByTagName(ARG_DIRECTION).item(0)?.textContent ?? '0', 10),
                         octaneStatus: 0 /* OctaneStatus.NEW */
                     };
-                    const defaultValueNode = argumentElement.getElementsByTagName(UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME).item(0);
-                    if (defaultValueNode) {
-                        parameter.defaultValue = defaultValueNode.textContent || '';
+                    const defaultValNode = argElem.getElementsByTagName(UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME).item(0);
+                    if (defaultValNode) {
+                        param.defaultValue = defaultValNode.textContent ?? '';
                     }
-                    parameters.push(parameter);
+                    params.push(param);
                 }
             }
         }
-        action.parameters = parameters;
-        action.description = document.getElementsByTagName(UFT_ACTION_DESCRIPTION_NODE_NAME).item(0)?.textContent ?? '';
+        action.parameters = params;
+        action.description = doc.getElementsByTagName(UFT_ACTION_DESCRIPTION_NODE_NAME).item(0)?.textContent ?? '';
     }
     convertToHtmlFormatIfRequired(description) {
         if (description === null || !description.includes('\n')) {
@@ -88986,7 +88988,7 @@ class Discovery {
             return null;
         }
     }
-    async extractXmlContentFromTspFile(filePath) {
+    async extractXmlFromTspOrMtrFile(filePath) {
         try {
             // Create OLE compound document with proper typing
             const doc = new ole_doc_1.OleCompoundDoc(filePath);
@@ -88996,7 +88998,7 @@ class Discovery {
                 doc.on('err', (err) => reject(new Error(`OLE parsing error: ${err.message}`)));
                 doc.read();
             });
-            _logger.debug("RootStorage: ", doc._rootStorage);
+            //_logger.debug("RootStorage: ", doc._rootStorage);
             let xmlData = '';
             if (doc._rootStorage) {
                 const stream = doc._rootStorage.stream(COMPONENT_INFO);
@@ -89058,13 +89060,13 @@ class Discovery {
             if (!tspTestFile) {
                 return null;
             }
-            const xmlContent = await this.extractXmlContentFromTspFile(tspTestFile);
+            const xmlContent = await this.extractXmlFromTspOrMtrFile(tspTestFile);
             if (!xmlContent) {
                 _logger.warn("No valid XML content extracted from TSP file");
                 return null;
             }
             const parser = this.getSecureDocumentParser();
-            const doc = parser.parseFromString(xmlContent, 'text/xml');
+            const doc = parser.parseFromString(xmlContent, TEXT_XML);
             if (doc.documentElement.nodeName === "parsererror") {
                 throw new TspParseError("Invalid XML content");
             }
@@ -89083,7 +89085,7 @@ class Discovery {
             }
             const xmlContent = await fs.promises.readFile(actionsFile, 'utf8');
             const parser = this.getSecureDocumentParser();
-            const doc = parser.parseFromString(xmlContent, 'text/xml');
+            const doc = parser.parseFromString(xmlContent, TEXT_XML);
             if (doc.documentElement.nodeName === "parsererror") {
                 throw new Error("Invalid XML content");
             }
@@ -89096,7 +89098,7 @@ class Discovery {
     }
     // in case a test was moved and we need the action path prefix before the move then set orgPath to true
     getActionPathPrefix(test, orgPath) {
-        return this.getTestPathPrefix(test, orgPath) + "\\%s:%s"; // TODO: check if this is the correct format
+        return this.getTestPathPrefix(test, orgPath);
     }
     // constructs a test path that contains only the test package and name
     getTestPathPrefix(test, orgPath) {
@@ -89789,11 +89791,14 @@ class Logger {
     info(message, obj) {
         this.log(LogLevel.INFO, message, obj);
     }
-    warn(message, obj) {
-        this.log(LogLevel.WARN, message, obj);
+    warn(message) {
+        if (LogLevel.WARN < this.minLevel)
+            return;
+        console.warn(`[${LogLevel.WARN}][${this.module}] ${message}`);
     }
-    error(message, obj) {
-        this.log(LogLevel.ERROR, message, obj);
+    error(message) {
+        const msg = `[${LogLevel.ERROR}][${this.module}] ${message}`;
+        console.error(msg);
     }
     /**
      * Log a message at a certain logging level.
@@ -89825,17 +89830,12 @@ class Logger {
      * @param message Message to log
      */
     emit(logLevelPrefix, message, obj) {
+        const msg = `[${logLevelPrefix}][${this.module}] ${message}`;
         if (obj) {
-            if (Array.isArray(obj)) {
-                console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
-                console.table(obj);
-            }
-            else {
-                console.log(`[${logLevelPrefix}][${this.module}] ${message}`, obj);
-            }
+            console.log(msg, obj);
         }
         else {
-            console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+            console.log(msg);
         }
     }
 }

@@ -64,11 +64,13 @@ export class Logger {
   public info(message: string, obj?: object | undefined): void {
     this.log(LogLevel.INFO, message, obj);
   }
-  public warn(message: string, obj?: object | undefined): void {
-    this.log(LogLevel.WARN, message, obj);
+  public warn(message: string): void {
+    if (LogLevel.WARN < this.minLevel) return;
+    console.warn(`[${LogLevel.WARN}][${this.module}] ${message}`);
   }
-  public error(message: string, obj?: object | undefined): void {
-    this.log(LogLevel.ERROR, message, obj);
+  public error(message: string): void {
+    const msg = `[${LogLevel.ERROR}][${this.module}] ${message}`;
+    console.error(msg);
   }
 
   /**
@@ -103,15 +105,11 @@ export class Logger {
    * @param message Message to log
    */
   private emit(logLevelPrefix: string, message: string, obj?: object | undefined): void {
+    const msg = `[${logLevelPrefix}][${this.module}] ${message}`;
     if (obj) {
-      if (Array.isArray(obj)) {
-        console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
-        console.table(obj);
-      }  else {
-        console.log(`[${logLevelPrefix}][${this.module}] ${message}`, obj);
-      }
+      console.log(msg, obj);
     } else {
-      console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+      console.log(msg);
     }
   }
 }

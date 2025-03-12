@@ -30,10 +30,12 @@ const UFT_ACTION_KIND_VALUE = "16";
 const UFT_ACTION_SCOPE_VALUE = "0";
 const ACTION_0 = "action0";
 const RESOURCE_MTR_FILE = "resource.mtr";
-const UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME = "ArgumentsCollection";
+const UFT_PARAM_ARGS_COLL_NODE_NAME = "ArgumentsCollection";
 const UFT_PARAM_ARG_NAME_NODE_NAME = "ArgName";
 const UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME = "ArgDefaultValue";
 const UFT_ACTION_DESCRIPTION_NODE_NAME = "Description";
+const ARG_DIRECTION = "ArgDirection";
+const TEXT_XML = "text/xml";
 const _folders2skip = [".git", ".github"];
 
 class TspParseError extends Error {
@@ -100,7 +102,7 @@ export default class Discovery {
           this._scmResxFiles.push(scmResxFile);
         }
       }
-    } else if (!(this._toolType == ToolType.MBT && testType === UftoTestType.API)) {
+    } else if (!(this._toolType === ToolType.MBT && testType === UftoTestType.API)) {
       const automTest = await this.createAutomatedTest(root, subDirPath, testType);
       this._tests.push(automTest);
     }
@@ -190,14 +192,12 @@ export default class Discovery {
   }
 
   private async readParameters(dirPath: string, actionMap: Map<string, UftoTestAction>): Promise<void> {
-    const documentBuilder = new DOMParser();
-
     for (const [actionName, action] of actionMap.entries()) {
         const actionFolder = `${dirPath}/${actionName}`;
         try {
             const resourceMtrFile = await this.getFileIfExist(actionFolder, RESOURCE_MTR_FILE);
             if (resourceMtrFile) {
-                await this.parseActionMtrFile(resourceMtrFile, documentBuilder, action);
+                await this.parseActionMtrFile(resourceMtrFile, action);
             } else {
                 console.warn(`resource.mtr file for action ${actionName} does not exist`);
             }
@@ -230,33 +230,34 @@ export default class Discovery {
     return actionMap;
   }
 
-  async parseActionMtrFile(resourceMtrFile: string, documentBuilder: DOMParser, action: UftoTestAction): Promise<void> {
-    const parameters: UftoTestParam[] = [];
-    const xmlContent = await fs.promises.readFile(resourceMtrFile, 'utf-8');
-    const document = documentBuilder.parseFromString(xmlContent, 'application/xml');
-    const argumentsCollectionElement = document.getElementsByTagName(UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME);
+  private async parseActionMtrFile(resourceMtrFile: string, action: UftoTestAction): Promise<void> {
+    const params: UftoTestParam[] = [];
+    const xmlContent = await this.extractXmlFromTspOrMtrFile(resourceMtrFile);
+    const parser = this.getSecureDocumentParser();
+    const doc = parser.parseFromString(xmlContent, TEXT_XML) as Document;
+    const argumentsCollectionElement = doc.getElementsByTagName(UFT_PARAM_ARGS_COLL_NODE_NAME);
     if (argumentsCollectionElement.length > 0) {
         const argumentsCollectionItem = argumentsCollectionElement.item(0);
         const childArgumentElements = argumentsCollectionItem?.childNodes;
         if (childArgumentElements) {
             for (let i = 0; i < childArgumentElements.length; i++) {
-                const argumentElement = childArgumentElements.item(i) as Element;
-                const parameter: UftoTestParam = {
-                    name: argumentElement.getElementsByTagName(UFT_PARAM_ARG_NAME_NODE_NAME).item(0)?.textContent ?? '',
-                    direction: parseInt(argumentElement.getElementsByTagName("ArgDirection").item(0)?.textContent ?? '0', 10),
+                const argElem = childArgumentElements.item(i) as Element;
+                const param: UftoTestParam = {
+                    name: argElem.getElementsByTagName(UFT_PARAM_ARG_NAME_NODE_NAME).item(0)?.textContent ?? '',
+                    direction: parseInt(argElem.getElementsByTagName(ARG_DIRECTION).item(0)?.textContent ?? '0', 10),
                     octaneStatus: OctaneStatus.NEW
                 };
-                const defaultValueNode = argumentElement.getElementsByTagName(UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME).item(0);
-                if (defaultValueNode) {
-                    parameter.defaultValue = defaultValueNode.textContent || '';
+                const defaultValNode = argElem.getElementsByTagName(UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME).item(0);
+                if (defaultValNode) {
+                    param.defaultValue = defaultValNode.textContent ?? '';
                 }
-                parameters.push(parameter);
+                params.push(param);
             }
         }
     }
 
-    action.parameters = parameters;
-    action.description = document.getElementsByTagName(UFT_ACTION_DESCRIPTION_NODE_NAME).item(0)?.textContent ?? '';
+    action.parameters = params;
+    action.description = doc.getElementsByTagName(UFT_ACTION_DESCRIPTION_NODE_NAME).item(0)?.textContent ?? '';
   }
 
   private convertToHtmlFormatIfRequired(description: string | null): string | null {
@@ -343,7 +344,7 @@ export default class Discovery {
     }
   }
 
-  private async extractXmlContentFromTspFile(filePath: string): Promise<string> {
+  private async extractXmlFromTspOrMtrFile(filePath: string): Promise<string> {
     try {
       // Create OLE compound document with proper typing
       const doc = new OleCompoundDoc(filePath);
@@ -355,7 +356,7 @@ export default class Discovery {
         doc.read();
       });
 
-      _logger.debug("RootStorage: ", doc._rootStorage);
+      //_logger.debug("RootStorage: ", doc._rootStorage);
 
       let xmlData = '';
 
@@ -421,14 +422,14 @@ export default class Discovery {
         return null;
       }
     
-      const xmlContent = await this.extractXmlContentFromTspFile(tspTestFile);
+      const xmlContent = await this.extractXmlFromTspOrMtrFile(tspTestFile);
       if (!xmlContent) {
         _logger.warn("No valid XML content extracted from TSP file");
         return null;
       }
 
       const parser = this.getSecureDocumentParser();
-      const doc = parser.parseFromString(xmlContent, 'text/xml') as Document;
+      const doc = parser.parseFromString(xmlContent, TEXT_XML) as Document;
 
       if (doc.documentElement.nodeName === "parsererror") {
         throw new TspParseError("Invalid XML content");
@@ -450,7 +451,7 @@ export default class Discovery {
 
       const xmlContent = await fs.promises.readFile(actionsFile, 'utf8');
       const parser = this.getSecureDocumentParser();
-      const doc = parser.parseFromString(xmlContent, 'text/xml') as Document;
+      const doc = parser.parseFromString(xmlContent, TEXT_XML) as Document;
       if (doc.documentElement.nodeName === "parsererror") {
         throw new Error("Invalid XML content");
       }
@@ -463,7 +464,7 @@ export default class Discovery {
 
   // in case a test was moved and we need the action path prefix before the move then set orgPath to true
   private getActionPathPrefix(test: AutomatedTest, orgPath: boolean): string {
-    return this.getTestPathPrefix(test, orgPath) + "\\%s:%s"; // TODO: check if this is the correct format
+    return this.getTestPathPrefix(test, orgPath);
   }
 
   // constructs a test path that contains only the test package and name
