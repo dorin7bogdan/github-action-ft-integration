@@ -89465,113 +89465,6 @@ const hasExecutorParameters = (configParameters) => {
 
 /***/ }),
 
-/***/ 41730:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-/*
- * Copyright 2016-2025 Open Text.
- *
- * The only warranties for products and services of Open Text and
- * its affiliates and licensors (“Open Text”) are as may be set forth
- * in the express warranty statements accompanying such products and services.
- * Nothing herein should be construed as constituting an additional warranty.
- * Open Text shall not be liable for technical or editorial errors or
- * omissions contained herein. The information contained herein is subject
- * to change without notice.
- *
- * Except as specifically indicated otherwise, this document contains
- * confidential information and a valid license is required for possession,
- * use or copying. If this work is provided to the U.S. Government,
- * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
- * Computer Software Documentation, and Technical Data for Commercial Items are
- * licensed to the U.S. Government under vendor's standard commercial license.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *   http://www.apache.org/licenses/LICENSE-2.0
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-const core_1 = __nccwpck_require__(37484);
-const eventHandler_1 = __nccwpck_require__(37751);
-const core = __importStar(__nccwpck_require__(37484));
-const logger_1 = __nccwpck_require__(7893);
-const _logger = new logger_1.Logger('Main');
-async function run() {
-    try {
-        _logger.info('BEGIN run ...');
-        const isDevMode = core.getBooleanInput('isDevMode');
-        if (isDevMode) {
-            _logger.info('Running in dev mode ...');
-            process.chdir('_repo_');
-        }
-        _logger.info('Current dir = ' + process.cwd());
-        await (0, eventHandler_1.handleCurrentEvent)();
-    }
-    catch (error) {
-        let msg;
-        if (error.response) {
-            if (error.response.config) {
-                msg = `${error.response.status} - ${error.response.statusText}\n url: ${error.response.config.url} - ${error.response.config.method}\n${error.response.data.description_translated}`;
-            }
-            else {
-                msg = JSON.stringify(error.response);
-            }
-        }
-        else {
-            msg = error.message;
-        }
-        (0, core_1.setFailed)(msg);
-    }
-    finally {
-        _logger.info('END run ...');
-    }
-}
-run();
-
-
-/***/ }),
-
 /***/ 80039:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -96971,12 +96864,79 @@ module.exports = /*#__PURE__*/JSON.parse('{"100":"Continue","101":"Switching Pro
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
 /******/ 	
 /************************************************************************/
-/******/ 	
-/******/ 	// startup
-/******/ 	// Load entry module and return exports
-/******/ 	// This entry module is referenced by other modules so it can't be inlined
-/******/ 	var __webpack_exports__ = __nccwpck_require__(41730);
-/******/ 	module.exports = __webpack_exports__;
-/******/ 	
+var __webpack_exports__ = {};
+// This entry need to be wrapped in an IIFE because it need to be in strict mode.
+(() => {
+"use strict";
+var exports = __webpack_exports__;
+
+/*
+ * Copyright 2016-2025 Open Text.
+ *
+ * The only warranties for products and services of Open Text and
+ * its affiliates and licensors (“Open Text”) are as may be set forth
+ * in the express warranty statements accompanying such products and services.
+ * Nothing herein should be construed as constituting an additional warranty.
+ * Open Text shall not be liable for technical or editorial errors or
+ * omissions contained herein. The information contained herein is subject
+ * to change without notice.
+ *
+ * Except as specifically indicated otherwise, this document contains
+ * confidential information and a valid license is required for possession,
+ * use or copying. If this work is provided to the U.S. Government,
+ * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
+ * Computer Software Documentation, and Technical Data for Commercial Items are
+ * licensed to the U.S. Government under vendor's standard commercial license.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const core_1 = __nccwpck_require__(37484);
+const eventHandler_1 = __nccwpck_require__(37751);
+const logger_1 = __nccwpck_require__(7893);
+const _logger = new logger_1.Logger('Main');
+async function run() {
+    try {
+        _logger.info('BEGIN run ...');
+        /*     const isDevMode = core.getBooleanInput('isDevMode');
+            if (isDevMode) {
+              _logger.info('Running in dev mode ...');
+              process.chdir('_repo_');
+            } */
+        _logger.info('Current dir = ' + process.cwd());
+        await (0, eventHandler_1.handleCurrentEvent)();
+    }
+    catch (error) {
+        let msg;
+        if (error.response) {
+            if (error.response.config) {
+                msg = `${error.response.status} - ${error.response.statusText}\n url: ${error.response.config.url} - ${error.response.config.method}\n${error.response.data.description_translated}`;
+            }
+            else {
+                msg = JSON.stringify(error.response);
+            }
+        }
+        else {
+            msg = error.message;
+        }
+        (0, core_1.setFailed)(msg);
+    }
+    finally {
+        _logger.info('END run ...');
+    }
+}
+run();
+
+})();
+
+module.exports = __webpack_exports__;
 /******/ })()
 ;
