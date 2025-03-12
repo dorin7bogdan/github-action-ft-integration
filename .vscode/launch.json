@@ -12,14 +12,17 @@
         "args": [ "${workspaceFolder}/src/main.ts" ],
         "cwd": "${workspaceFolder}",
         "env": {
+          "GITHUB_REPOSITORY": "dorin7bogdan/ufto-tests",
           "GITHUB_EVENT_NAME": "workflow_dispatch", // Simulate manual trigger
-          "INPUT_OCTANEURL": "https://qa.com",
-          "INPUT_OCTANESHAREDSPACE": "128",
-          "INPUT_OCTANEWORKSPACE": "20",
+          "INPUT_OCTANEURL": "https://qa8.almoctane.com",
+          "INPUT_OCTANESHAREDSPACE": "128004",
+          "INPUT_OCTANEWORKSPACE": "2001",
           "INPUT_OCTANECLIENTID": "mock-client-id",
           "INPUT_OCTANECLIENTSECRET": "mock-client-secret",
-          "INPUT_GITHUBTOKEN": "mock-github-token",
-          "INPUT_SERVERBASEURL": "https://github.com/dorin7bogdan/ufto-tests.git"
+          "INPUT_GITHUBTOKEN": "github_pat",
+          "INPUT_LOGLEVEL": "2",
+          "INPUT_TESTINGTOOLTYPE": "UFT",
+          "INPUT_ISDEVMODE": "true"
         }
       }
     ]

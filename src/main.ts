@@ -30,11 +30,19 @@
 import { setFailed } from '@actions/core';
 import { handleCurrentEvent } from './eventHandler';
 import * as core from '@actions/core';
+import { Logger } from './utils/logger';
+const _logger: Logger = new Logger('Main');
 
 async function run () {
   try {
+    _logger.info('BEGIN run ...');
 
-    core.info('BEGIN main.ts ...');
+    const isDevMode = core.getBooleanInput('isDevMode');
+    if (isDevMode) {
+      _logger.info('Running in dev mode ...');
+      process.chdir('_repo_');
+    }
+    _logger.info('Current dir = ' + process.cwd());
 
     await handleCurrentEvent();
   } catch (error: any) {
@@ -50,7 +58,7 @@ async function run () {
     }
     setFailed(msg);
   } finally {
-    core.info('END main.ts ...');
+    _logger.info('END run ...');
   }
 }
 

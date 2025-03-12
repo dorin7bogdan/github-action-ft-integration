@@ -55,20 +55,20 @@ export class Logger {
     this.minLevel = getConfig().logLevel;
   }
 
-  public trace(message: string): void {
-    this.log(LogLevel.TRACE, message);
+  public trace(message: string, obj?: object | undefined): void {
+    this.log(LogLevel.TRACE, message, obj);
   }
-  public debug(message: string): void {
-    this.log(LogLevel.DEBUG, message);
+  public debug(message: string, obj?: object | undefined): void {
+    this.log(LogLevel.DEBUG, message, obj);
   }
-  public info(message: string): void {
-    this.log(LogLevel.INFO, message);
+  public info(message: string, obj?: object | undefined): void {
+    this.log(LogLevel.INFO, message, obj);
   }
-  public warn(message: string): void {
-    this.log(LogLevel.WARN, message);
+  public warn(message: string, obj?: object | undefined): void {
+    this.log(LogLevel.WARN, message, obj);
   }
-  public error(message: string): void {
-    this.log(LogLevel.ERROR, message);
+  public error(message: string, obj?: object | undefined): void {
+    this.log(LogLevel.ERROR, message, obj);
   }
 
   /**
@@ -77,11 +77,11 @@ export class Logger {
    * @param logLevel Level to log at
    * @param message Message to log
    */
-  private log(logLevel: LogLevel, message: string): void {
+  private log(logLevel: LogLevel, message: string, obj?: object | undefined): void {
     const level = this.getLevel(logLevel);
     if (!level || level.value < this.minLevel) return;
 
-    this.emit(level.display, message);
+    this.emit(level.display, message, obj);
   }
 
   /**
@@ -102,7 +102,16 @@ export class Logger {
    * @param logLevelPrefix Display name of the log level
    * @param message Message to log
    */
-  private emit(logLevelPrefix: string, message: string): void {
-    console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+  private emit(logLevelPrefix: string, message: string, obj?: object | undefined): void {
+    if (obj) {
+      if (Array.isArray(obj)) {
+        console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+        console.table(obj);
+      }  else {
+        console.log(`[${logLevelPrefix}][${this.module}] ${message}`, obj);
+      }
+    } else {
+      console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+    }
   }
 }

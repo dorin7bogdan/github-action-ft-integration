@@ -88684,10 +88684,10 @@ const UftoTestType_1 = __nccwpck_require__(5720);
 const ToolType_1 = __nccwpck_require__(22744);
 const xmldom_1 = __nccwpck_require__(83503);
 const ole_doc_1 = __nccwpck_require__(38796);
-const GUI_TEST_FILE = 'test.tsp';
-const API_ACTIONS_FILE = "actions.xml"; //api test
-const COMPONENT_INFO_ENTRY = "ComponentInfo";
 const _logger = new logger_1.Logger('Discovery');
+const GUI_TEST_FILE = 'Test.tsp';
+const API_ACTIONS_FILE = "actions.xml"; //api test
+const COMPONENT_INFO = "ComponentInfo";
 const UFT_COMPONENT_NODE_NAME = "Component";
 const UFT_DEPENDENCY_NODE_NAME = "Dependency";
 const UFT_ACTION_TYPE_ATTR = "Type";
@@ -88703,6 +88703,7 @@ const UFT_PARAM_ARGUMENTS_COLLECTION_NODE_NAME = "ArgumentsCollection";
 const UFT_PARAM_ARG_NAME_NODE_NAME = "ArgName";
 const UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME = "ArgDefaultValue";
 const UFT_ACTION_DESCRIPTION_NODE_NAME = "Description";
+const _folders2skip = [".git", ".github"];
 class TspParseError extends Error {
     constructor(message) {
         super(message);
@@ -88712,12 +88713,18 @@ class TspParseError extends Error {
 class Discovery {
     constructor(toolType) {
         this._tests = [];
+        this._scmResxFiles = [];
         _logger.info('Discovery constructor ...');
         this._toolType = toolType;
     }
+    getTests() {
+        return this._tests;
+    }
+    getScmResxFiles() {
+        return this._scmResxFiles;
+    }
     async startFullScanning(repoUrl) {
         _logger.info('BEGIN startFullScanning ...');
-        core.info('BEGIN startFullScanning ...');
         if (!repoUrl || repoUrl?.trim() === '') {
             throw new Error('Repository URL is required!');
         }
@@ -88725,62 +88732,65 @@ class Discovery {
         if (didFullCheckout) {
             await this.doFullDiscovery(workDir);
         }
-        core.info('END startFullScanning ...');
+        else {
+            await this.doSyncDiscovery(workDir);
+        }
+        _logger.info('END startFullScanning ...');
     }
     async doFullDiscovery(workDir) {
-        await this.scanFileSystemRecursively(workDir, workDir);
+        await this.scanDirRecursively(workDir, workDir);
     }
-    async scanFileSystemRecursively(root, fullPathSubDir) {
-        const stats = await fs.promises.stat(fullPathSubDir);
-        if (stats.isDirectory()) {
-            const items = await fs.promises.readdir(fullPathSubDir) ?? [];
-            const testType = await this.isUftoTestDir(items);
-            if (testType.isNone()) {
-                for (const item of items) {
-                    const fullPathSubDirOrFile = path.join(fullPathSubDir, item);
-                    const stats = await fs.promises.stat(fullPathSubDirOrFile);
-                    if (stats.isDirectory()) {
-                        await this.scanFileSystemRecursively(root, fullPathSubDirOrFile);
-                    }
-                    else if (this.isUftoDataTableFile(item)) {
-                        const dataTable = this.createDataTable(root, fullPathSubDirOrFile);
-                    }
+    async doSyncDiscovery(workDir) {
+        await this.scanDirRecursively(workDir, workDir);
+    }
+    async scanDirRecursively(root, subDirPath) {
+        if (_folders2skip.includes(path.basename(subDirPath))) {
+            return;
+        }
+        const items = await fs.promises.readdir(subDirPath) ?? [];
+        const testType = await this.getUftoTestType(items);
+        if (testType.isNone()) {
+            for (const item of items) {
+                const subDirOrFilePath = path.join(subDirPath, item);
+                const stats = await fs.promises.stat(subDirOrFilePath);
+                if (stats.isDirectory()) {
+                    await this.scanDirRecursively(root, subDirOrFilePath);
+                }
+                else if (this.isUftoDataTableFile(item)) {
+                    const scmResxFile = this.createScmResxFile(root, subDirOrFilePath);
+                    this._scmResxFiles.push(scmResxFile);
                 }
             }
-            else if (!(this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
-                const automTest = await this.createAutomatedTest(root, fullPathSubDir, testType);
-            }
+        }
+        else if (!(this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
+            const automTest = await this.createAutomatedTest(root, subDirPath, testType);
+            this._tests.push(automTest);
         }
     }
-    async createAutomatedTest(root, fullPathSubDir, testType) {
-        const testName = path.basename(fullPathSubDir);
-        const relativePath = this.getRelativePath(root, fullPathSubDir);
+    async createAutomatedTest(root, subDirPath, testType) {
+        const testName = path.basename(subDirPath);
+        const relativePath = this.getRelativePath(root, subDirPath);
         let packageName = "";
         if (relativePath.length > testName.length) {
             const segments = relativePath.split(path.sep);
             packageName = segments.slice(0, -1).join(path.sep);
         }
         const test = {
-            id: '',
             name: testName,
             packageName: packageName,
-            isMoved: false,
             uftOneTestType: testType,
-            missingScmRepository: false,
-            missingTestRunner: false,
             executable: true,
-            description: '',
             actions: [],
             octaneStatus: 0 /* OctaneStatus.NEW */
         };
-        const doc = await this.getDocument(fullPathSubDir, testType);
+        const doc = await this.getDocument(subDirPath, testType);
         let descr = this.getTestDescription(doc, testType);
         descr = this.convertToHtmlFormatIfRequired(descr);
         test.description = descr ?? "";
         // discover actions only for mbt toolType and gui tests
         if (this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.GUI) {
             const actionPathPrefix = this.getActionPathPrefix(test, false);
-            const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, testName, fullPathSubDir);
+            const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, testName, subDirPath);
             test.actions = actions;
         }
         return test;
@@ -88966,7 +88976,7 @@ class Discovery {
         ;
     }
     async getFileIfExist(dirPath, fileName) {
-        const filePath = `${dirPath}/${fileName}`;
+        const filePath = `${dirPath}\\${fileName}`;
         try {
             await fs.promises.access(filePath);
             return filePath;
@@ -88978,43 +88988,58 @@ class Discovery {
     }
     async extractXmlContentFromTspFile(filePath) {
         try {
-            const oleDoc = new ole_doc_1.OleCompoundDoc(filePath);
-            await oleDoc.read();
-            const entries = oleDoc.storage;
-            let xmlData = "";
-            // Find ComponentInfo entry
-            for (const entry of entries) {
-                if (entry.name === COMPONENT_INFO_ENTRY) {
-                    if (entry.isDirectory) {
-                        _logger.debug(`Found directory entry for ${COMPONENT_INFO_ENTRY}`);
-                        continue;
-                    }
-                    // Read document entry
-                    const content = await new Promise((resolve, reject) => {
-                        const stream = oleDoc.stream(entry);
-                        const chunks = [];
-                        stream.on('data', (chunk) => chunks.push(chunk));
-                        stream.on('end', () => resolve(Buffer.concat(chunks)));
-                        stream.on('error', reject);
-                    });
-                    // Convert from UnicodeLE and clean up
-                    xmlData = content.toString('utf16le');
-                    const xmlStart = xmlData.indexOf('<');
+            // Create OLE compound document with proper typing
+            const doc = new ole_doc_1.OleCompoundDoc(filePath);
+            // Convert doc.read() to async/await
+            await new Promise((resolve, reject) => {
+                doc.on('ready', () => resolve());
+                doc.on('err', (err) => reject(new Error(`OLE parsing error: ${err.message}`)));
+                doc.read();
+            });
+            _logger.debug("RootStorage: ", doc._rootStorage);
+            let xmlData = '';
+            if (doc._rootStorage) {
+                const stream = doc._rootStorage.stream(COMPONENT_INFO);
+                if (stream) {
+                    const content = await this.readStreamToBuffer(stream);
+                    const fromUnicodeLE = this.bufferToUnicodeLE(content);
+                    const xmlStart = fromUnicodeLE.indexOf('<');
                     if (xmlStart >= 0) {
-                        xmlData = xmlData.substring(xmlStart);
+                        xmlData = fromUnicodeLE.substring(xmlStart).replace(/\0/g, '');
                     }
-                    xmlData = xmlData.replace(/\u0000/g, '');
-                    _logger.info(`Successfully extracted ${xmlData.length} characters from ComponentInfo`);
-                    break;
+                }
+                else {
+                    throw new Error('ComponentInfo stream not found via OleCompoundDoc._rootStorage');
                 }
             }
-            await oleDoc.close();
+            else {
+                throw new Error('OleCompoundDoc: _rootStorage not initialized');
+            }
             return xmlData;
         }
         catch (error) {
-            _logger.warn(`Failed to extract XML content: ${error}`);
-            throw new TspParseError(`TSP extraction failed: ${error}`);
+            const err = `${error.message}`;
+            _logger.error(`Failed to extract xml from Test.tsp file: ${err}`);
+            throw new Error(err);
         }
+    }
+    async readStreamToBuffer(stream) {
+        return new Promise((resolve, reject) => {
+            const chunks = [];
+            stream.on('data', (chunk) => chunks.push(chunk));
+            stream.on('end', () => resolve(Buffer.concat(chunks)));
+            stream.on('error', reject);
+        });
+    }
+    bufferToUnicodeLE(buffer) {
+        let result = '';
+        for (let i = 0; i < buffer.length; i += 2) {
+            const charCode = buffer.readUInt16LE(i);
+            if (charCode === 0)
+                continue; // Skip null characters
+            result += String.fromCharCode(charCode);
+        }
+        return result;
     }
     getSecureDocumentParser() {
         const parser = new xmldom_1.DOMParser({
@@ -89082,7 +89107,7 @@ class Discovery {
     isUftoDataTableFile(file) {
         return path.extname(file) === ".xlsx" || path.extname(file) === ".xls";
     }
-    async isUftoTestDir(paths) {
+    async getUftoTestType(paths) {
         if (paths == null || paths.length === 0) {
             return UftoTestType_1.UftoTestType.None;
         }
@@ -89097,104 +89122,107 @@ class Discovery {
         }
         return UftoTestType_1.UftoTestType.None;
     }
-    createDataTable(root, fullPathFile) {
-        const resourceFile = {
+    createScmResxFile(root, fullPathFile) {
+        const resxFile = {
             name: fullPathFile,
             relativePath: this.getRelativePath(root, fullPathFile),
-            octaneStatus: 0 /* OctaneStatus.NEW */,
-            id: '',
-            oldName: '',
-            oldRelativePath: '',
-            isMoved: false,
-            changeSetSrc: '',
-            changeSetDst: ''
+            octaneStatus: 0 /* OctaneStatus.NEW */
         };
-        return resourceFile;
+        return resxFile;
     }
     getRelativePath(root, subPath) {
         return path.relative(root, subPath);
     }
     async checkoutRepo() {
-        core.info('BEGIN checkoutRepo ...');
-        const token = core.getInput('githubToken', { required: true });
-        const { owner, repo } = github_1.context.repo;
-        const serverUrl = github_1.context.serverUrl;
-        let didFullCheckout = false;
-        core.info(`Working directory: ${process.cwd()}`);
-        const workDir = process.cwd();
-        const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-        const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
-        core.debug(`Expected authRepoUrl: ${authRepoUrl}`);
-        // Filter process.env to exclude undefined values
-        const filteredEnv = {};
-        for (const [key, value] of Object.entries(process.env)) {
-            if (value !== undefined) {
-                filteredEnv[key] = value;
+        _logger.info('BEGIN checkoutRepo ...');
+        try {
+            const token = core.getInput('githubToken', { required: true });
+            const { owner, repo } = github_1.context.repo;
+            const serverUrl = github_1.context.serverUrl;
+            let didFullCheckout = false;
+            _logger.info(`Working directory: ${process.cwd()}`);
+            const workDir = process.cwd();
+            const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+            const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
+            _logger.debug(`Expected authRepoUrl: ${authRepoUrl}`);
+            // Filter process.env to exclude undefined values
+            const filteredEnv = {};
+            for (const [key, value] of Object.entries(process.env)) {
+                if (value !== undefined) {
+                    filteredEnv[key] = value;
+                }
             }
-        }
-        // Configure Git options with common properties
-        const gitOptions = {
-            cwd: workDir, // Common working directory
-            ignoreReturnCode: true, // Ignore non-zero exit codes by default
-            silent: false, // Keep false for debugging
-            env: filteredEnv, // Use filtered env with only string values
-            listeners: {
-                stderr: (data) => core.debug(data.toString().trim())
-            }
-        };
-        // Check if _work\ufto-tests is a Git repository
-        const gitDir = path.join(workDir, '.git');
-        if (fs.existsSync(gitDir)) {
-            core.info('Working directory is a Git repo, checking remote URL...');
-            // Get the current remote URL with specific stdout capture
-            let currentRemoteUrl = '';
-            const getUrlOutput = [];
-            const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
-                ...gitOptions,
+            // Configure Git options with common properties
+            const gitOptions = {
+                cwd: workDir, // Common working directory
+                ignoreReturnCode: true, // Ignore non-zero exit codes by default
+                silent: false, // Keep false for debugging
+                env: filteredEnv, // Use filtered env with only string values
                 listeners: {
-                    ...gitOptions.listeners,
-                    stdout: (data) => getUrlOutput.push(data.toString().trim())
+                    stderr: (data) => print(data)
                 }
-            });
-            if (getUrlExitCode === 0) {
-                currentRemoteUrl = getUrlOutput.join('').trim();
-                core.debug(`Current remote URL: ${currentRemoteUrl}`);
+            };
+            function print(data) {
+                if (data) {
+                    const msg = data.toString().trim();
+                    _logger.info(msg);
+                }
+            }
+            ;
+            // Check if _work\ufto-tests is a Git repository
+            const gitDir = path.join(workDir, '.git');
+            if (fs.existsSync(gitDir)) {
+                _logger.info('Working directory is a Git repo, checking remote URL...');
+                // Get the current remote URL with specific stdout capture
+                let currentRemoteUrl = '';
+                const getUrlOutput = [];
+                const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
+                    ...gitOptions,
+                    listeners: {
+                        ...gitOptions.listeners,
+                        stdout: (data) => getUrlOutput.push(data.toString().trim())
+                    }
+                });
+                if (getUrlExitCode === 0) {
+                    currentRemoteUrl = getUrlOutput.join('').trim();
+                    _logger.debug(`Current remote URL: ${currentRemoteUrl}`);
+                }
+                else {
+                    _logger.warn('Failed to get current remote URL, proceeding with set-url');
+                }
+                // Compare current URL with base repoUrl (ignoring token)
+                if (currentRemoteUrl == authRepoUrl) {
+                    _logger.info('Remote URL base matches.');
+                }
+                else {
+                    _logger.info('Remote URL does not match, setting to authenticated URL...');
+                    const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
+                    if (setUrlExitCode !== 0) {
+                        throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+                    }
+                }
+                // Perform the pull
+                _logger.info('Pulling updates...');
+                const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
+                if (pullExitCode !== 0) {
+                    throw new Error(`git pull failed with exit code ${pullExitCode}`);
+                }
             }
             else {
-                core.warning('Failed to get current remote URL, proceeding with set-url');
-            }
-            // Compare current URL with base repoUrl (ignoring token)
-            if (currentRemoteUrl && currentRemoteUrl.includes(repoUrl)) {
-                core.info('Remote URL base matches, updating with current token...');
-                const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
-                if (setUrlExitCode !== 0) {
-                    throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
+                _logger.info('Cloning repository directly into _work\\ufto-tests...');
+                const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
+                if (cloneExitCode !== 0) {
+                    throw new Error(`git clone failed with exit code ${cloneExitCode}`);
                 }
+                didFullCheckout = true;
             }
-            else {
-                core.info('Remote URL does not match, setting to authenticated URL...');
-                const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
-                if (setUrlExitCode !== 0) {
-                    throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
-                }
-            }
-            // Perform the pull
-            core.info('Pulling updates...');
-            const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
-            if (pullExitCode !== 0) {
-                throw new Error(`git pull failed with exit code ${pullExitCode}`);
-            }
+            _logger.info('END checkoutRepo ...');
+            return { workDir, didFullCheckout };
         }
-        else {
-            core.info('Cloning repository directly into _work\\ufto-tests...');
-            const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
-            if (cloneExitCode !== 0) {
-                throw new Error(`git clone failed with exit code ${cloneExitCode}`);
-            }
-            didFullCheckout = true;
+        catch (error) {
+            _logger.error('Error in checkoutRepo: ' + error?.message);
+            throw error;
         }
-        core.info('END checkoutRepo ...');
-        return { workDir, didFullCheckout };
     }
 }
 exports["default"] = Discovery;
@@ -89344,8 +89372,9 @@ const github_1 = __nccwpck_require__(93228);
 const core = __importStar(__nccwpck_require__(37484));
 const Discovery_1 = __importDefault(__nccwpck_require__(6672));
 const ToolType_1 = __nccwpck_require__(22744);
-const LOGGER = new logger_1.Logger('eventHandler');
+const _logger = new logger_1.Logger('eventHandler');
 const UFT = 'uft';
+const TESTING_TOOL_TYPE = 'testingToolType';
 const handleCurrentEvent = async () => {
     core.info('BEGIN handleEvent ...');
     const event = github_1.context.payload;
@@ -89362,26 +89391,35 @@ const handleCurrentEvent = async () => {
         core.info('Unknown event type');
         return;
     }
-    const repoOwner = event.repository?.owner.login;
-    const repoName = event.repository?.name;
-    const workflowFilePath = event.workflow?.path;
-    const workflowName = event.workflow?.name;
-    const workflowRunId = event.workflow_run?.id;
-    const branchName = event.workflow_run?.head_branch;
-    if (!repoOwner || !repoName) {
+    const serverUrl = github_1.context.serverUrl;
+    const { owner, repo } = github_1.context.repo;
+    const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+    /*     const repoOwner = event.repository?.owner.login;
+        const repoName = event.repository?.name;
+        if (!repoOwner || !repoName) {
+          throw new Error('Event should contain repository data!');
+        }
+        repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`; */
+    if (!repoUrl) {
         throw new Error('Event should contain repository data!');
     }
-    const serverUrl = github_1.context.serverUrl;
-    const repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`;
+    /*  const workflowFilePath = event.workflow?.path;
+      const workflowName = event.workflow?.name;
+      const workflowRunId = event.workflow_run?.id;
+      const branchName = event.workflow_run?.head_branch;*/
     core.info(`Current repository URL: ${repoUrl}`);
     switch (eventType) {
         case "workflow_run" /* ActionsEventType.WORKFLOW_RUN */:
-            let toolType = core.getInput('testingToolType') ?? UFT;
+            let toolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
             if (toolType.trim() == "") {
                 toolType = UFT;
             }
             const discovery = new Discovery_1.default(ToolType_1.ToolType.fromType(toolType));
             await discovery.startFullScanning(repoUrl);
+            const tests = discovery.getTests();
+            const scmResxFiles = discovery.getScmResxFiles();
+            _logger.debug("Tests: ", tests);
+            _logger.debug("Resource files: ", scmResxFiles);
             break;
         case "push" /* ActionsEventType.PUSH */:
             core.info('WORKFLOW_STARTED...');
@@ -89495,9 +89533,17 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(37484);
 const eventHandler_1 = __nccwpck_require__(37751);
 const core = __importStar(__nccwpck_require__(37484));
+const logger_1 = __nccwpck_require__(7893);
+const _logger = new logger_1.Logger('Main');
 async function run() {
     try {
-        core.info('BEGIN main.ts ...');
+        _logger.info('BEGIN run ...');
+        const isDevMode = core.getBooleanInput('isDevMode');
+        if (isDevMode) {
+            _logger.info('Running in dev mode ...');
+            process.chdir('_repo_');
+        }
+        _logger.info('Current dir = ' + process.cwd());
         await (0, eventHandler_1.handleCurrentEvent)();
     }
     catch (error) {
@@ -89516,7 +89562,7 @@ async function run() {
         (0, core_1.setFailed)(msg);
     }
     finally {
-        core.info('END main.ts ...');
+        _logger.info('END run ...');
     }
 }
 run();
@@ -89734,20 +89780,20 @@ class Logger {
         this.module = module;
         this.minLevel = (0, config_1.getConfig)().logLevel;
     }
-    trace(message) {
-        this.log(LogLevel.TRACE, message);
+    trace(message, obj) {
+        this.log(LogLevel.TRACE, message, obj);
     }
-    debug(message) {
-        this.log(LogLevel.DEBUG, message);
+    debug(message, obj) {
+        this.log(LogLevel.DEBUG, message, obj);
     }
-    info(message) {
-        this.log(LogLevel.INFO, message);
+    info(message, obj) {
+        this.log(LogLevel.INFO, message, obj);
     }
-    warn(message) {
-        this.log(LogLevel.WARN, message);
+    warn(message, obj) {
+        this.log(LogLevel.WARN, message, obj);
     }
-    error(message) {
-        this.log(LogLevel.ERROR, message);
+    error(message, obj) {
+        this.log(LogLevel.ERROR, message, obj);
     }
     /**
      * Log a message at a certain logging level.
@@ -89755,11 +89801,11 @@ class Logger {
      * @param logLevel Level to log at
      * @param message Message to log
      */
-    log(logLevel, message) {
+    log(logLevel, message, obj) {
         const level = this.getLevel(logLevel);
         if (!level || level.value < this.minLevel)
             return;
-        this.emit(level.display, message);
+        this.emit(level.display, message, obj);
     }
     /**
      * Converts a string level (trace/debug/info/warn/error) into a number and display value
@@ -89778,8 +89824,19 @@ class Logger {
      * @param logLevelPrefix Display name of the log level
      * @param message Message to log
      */
-    emit(logLevelPrefix, message) {
-        console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+    emit(logLevelPrefix, message, obj) {
+        if (obj) {
+            if (Array.isArray(obj)) {
+                console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+                console.table(obj);
+            }
+            else {
+                console.log(`[${logLevelPrefix}][${this.module}] ${message}`, obj);
+            }
+        }
+        else {
+            console.log(`[${logLevelPrefix}][${this.module}] ${message}`);
+        }
     }
 }
 exports.Logger = Logger;

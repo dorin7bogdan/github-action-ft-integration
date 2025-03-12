@@ -46,8 +46,9 @@ import * as core from '@actions/core';
 import Discovery from './discovery/Discovery';
 import { ToolType } from './dto/ft/ToolType';
 
-const LOGGER: Logger = new Logger('eventHandler');
+const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
+const TESTING_TOOL_TYPE = 'testingToolType';
 
 export const handleCurrentEvent = async (): Promise<void> => {
   core.info('BEGIN handleEvent ...');
@@ -67,30 +68,39 @@ export const handleCurrentEvent = async (): Promise<void> => {
     core.info('Unknown event type');
     return;
   }
-
-  const repoOwner = event.repository?.owner.login;
-  const repoName = event.repository?.name;
-  const workflowFilePath = event.workflow?.path;
-  const workflowName = event.workflow?.name;
-  const workflowRunId = event.workflow_run?.id;
-  const branchName = event.workflow_run?.head_branch;
-
-  if (!repoOwner || !repoName) {
+  const serverUrl = context.serverUrl;
+  const { owner, repo } = context.repo;
+  const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
+/*     const repoOwner = event.repository?.owner.login;
+    const repoName = event.repository?.name;
+    if (!repoOwner || !repoName) {
+      throw new Error('Event should contain repository data!');
+    }
+    repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`; */
+  if (!repoUrl) {
     throw new Error('Event should contain repository data!');
   }
+/*  const workflowFilePath = event.workflow?.path;
+  const workflowName = event.workflow?.name;
+  const workflowRunId = event.workflow_run?.id;
+  const branchName = event.workflow_run?.head_branch;*/
 
-  const serverUrl = context.serverUrl;
-  const repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`;
   core.info(`Current repository URL: ${repoUrl}`);
 
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      let toolType = core.getInput('testingToolType') ?? UFT;
+      let toolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
       if (toolType.trim() == "") {
         toolType = UFT;
       }
       const discovery = new Discovery(ToolType.fromType(toolType));
       await discovery.startFullScanning(repoUrl);
+      const tests = discovery.getTests();
+      const scmResxFiles = discovery.getScmResxFiles();
+
+      _logger.debug("Tests: ", tests);
+      _logger.debug("Resource files: ", scmResxFiles);
+
       break;
     case ActionsEventType.PUSH:
       core.info('WORKFLOW_STARTED...');
