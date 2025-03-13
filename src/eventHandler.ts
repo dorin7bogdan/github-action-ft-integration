@@ -45,6 +45,7 @@ import CiParameter from './dto/octane/events/CiParameter';
 import * as core from '@actions/core';
 import Discovery from './discovery/Discovery';
 import { ToolType } from './dto/ft/ToolType';
+import { UftoParamDirection } from './dto/ft/UftoParamDirection';
 
 const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
@@ -105,8 +106,9 @@ export const handleCurrentEvent = async (): Promise<void> => {
         for (let a of t.actions) {
           _logger.debugX(`  ${a.name}`);
           if (a.parameters) {
+            _logger.debugX(`   Parameters:`);
             for (let p of a.parameters) {
-              _logger.debugX(`   Param: ${p.name} - ${p.direction}`);
+              _logger.debugX(`    ${p.name} - ${UftoParamDirection[p.direction]}`);
             }
           }
         }

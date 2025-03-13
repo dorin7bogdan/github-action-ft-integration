@@ -18,6 +18,10 @@ export class UftoTestType {
   public static fromType(type: string): UftoTestType | undefined {
     return UftoTestType.values().find(value => value.testType === type.toLowerCase());
   }
+
+  public toString(): string {
+    return this.testType.toUpperCase();
+  }
 }
 
 export type UftTestTypeWrapper = typeof UftoTestType.GUI | typeof UftoTestType.API | typeof UftoTestType.None;

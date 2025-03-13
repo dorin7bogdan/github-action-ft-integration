@@ -37,11 +37,11 @@ async function run () {
   try {
     _logger.info('BEGIN run ...');
 
-/*     const isDevMode = core.getBooleanInput('isDevMode');
+    const isDevMode = process.env.IsDevMode === 'true';
     if (isDevMode) {
       _logger.info('Running in dev mode ...');
       process.chdir('_repo_');
-    } */
+    } 
     _logger.info('Current dir = ' + process.cwd());
 
     await handleCurrentEvent();

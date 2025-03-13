@@ -89211,7 +89211,7 @@ class Discovery {
                 }
             }
             else {
-                _logger.info('Cloning repository directly into _work\\ufto-tests...');
+                _logger.info(`Cloning repository into ${workDir}`);
                 const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
                 if (cloneExitCode !== 0) {
                     throw new Error(`git clone failed with exit code ${cloneExitCode}`);
@@ -89264,6 +89264,32 @@ ToolType.None = new ToolType("none");
 
 /***/ }),
 
+/***/ 82410:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UftoParamDirection = void 0;
+var UftoParamDirection;
+(function (UftoParamDirection) {
+    UftoParamDirection[UftoParamDirection["IN"] = 0] = "IN";
+    UftoParamDirection[UftoParamDirection["OUT"] = 1] = "OUT";
+})(UftoParamDirection || (exports.UftoParamDirection = UftoParamDirection = {}));
+(function (UftoParamDirection) {
+    const valueMap = {
+        [UftoParamDirection.IN]: UftoParamDirection.IN,
+        [UftoParamDirection.OUT]: UftoParamDirection.OUT
+    };
+    function get(num) {
+        return valueMap[num] ?? null;
+    }
+    UftoParamDirection.get = get;
+})(UftoParamDirection || (exports.UftoParamDirection = UftoParamDirection = {}));
+
+
+/***/ }),
+
 /***/ 5720:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -89285,6 +89311,9 @@ class UftoTestType {
     // Optional: Get by type string
     static fromType(type) {
         return UftoTestType.values().find(value => value.testType === type.toLowerCase());
+    }
+    toString() {
+        return this.testType.toUpperCase();
     }
 }
 exports.UftoTestType = UftoTestType;
@@ -89374,6 +89403,7 @@ const github_1 = __nccwpck_require__(93228);
 const core = __importStar(__nccwpck_require__(37484));
 const Discovery_1 = __importDefault(__nccwpck_require__(6672));
 const ToolType_1 = __nccwpck_require__(22744);
+const UftoParamDirection_1 = __nccwpck_require__(82410);
 const _logger = new logger_1.Logger('eventHandler');
 const UFT = 'uft';
 const TESTING_TOOL_TYPE = 'testingToolType';
@@ -89427,8 +89457,9 @@ const handleCurrentEvent = async () => {
                 for (let a of t.actions) {
                     _logger.debugX(`  ${a.name}`);
                     if (a.parameters) {
+                        _logger.debugX(`   Parameters:`);
                         for (let p of a.parameters) {
-                            _logger.debugX(`   Param: ${p.name} - ${p.direction}`);
+                            _logger.debugX(`    ${p.name} - ${UftoParamDirection_1.UftoParamDirection[p.direction]}`);
                         }
                     }
                 }
@@ -96923,11 +96954,11 @@ const _logger = new logger_1.Logger('Main');
 async function run() {
     try {
         _logger.info('BEGIN run ...');
-        /*     const isDevMode = core.getBooleanInput('isDevMode');
-            if (isDevMode) {
-              _logger.info('Running in dev mode ...');
-              process.chdir('_repo_');
-            } */
+        const isDevMode = process.env.IsDevMode === 'true';
+        if (isDevMode) {
+            _logger.info('Running in dev mode ...');
+            process.chdir('_repo_');
+        }
         _logger.info('Current dir = ' + process.cwd());
         await (0, eventHandler_1.handleCurrentEvent)();
     }

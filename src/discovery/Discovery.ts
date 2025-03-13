@@ -588,7 +588,7 @@ export default class Discovery {
           throw new Error(`git pull failed with exit code ${pullExitCode}`);
         }
       } else {
-        _logger.info('Cloning repository directly into _work\\ufto-tests...');
+        _logger.info(`Cloning repository into ${workDir}`);
         const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
         if (cloneExitCode !== 0) {
           throw new Error(`git clone failed with exit code ${cloneExitCode}`);
