@@ -89421,6 +89421,18 @@ const handleCurrentEvent = async () => {
             const tests = discovery.getTests();
             const scmResxFiles = discovery.getScmResxFiles();
             _logger.debug(`Tests: ${tests.length}`, tests);
+            for (let t of tests) {
+                _logger.debug(`Test: ${t.name}, type = ${t.uftOneTestType}`);
+                _logger.debug(` Actions:`);
+                for (let a of t.actions) {
+                    _logger.debug(`  ${a.name}`);
+                    if (a.parameters) {
+                        for (let p of a.parameters) {
+                            _logger.debug(`   Param: ${p.name} - ${p.direction}`);
+                        }
+                    }
+                }
+            }
             _logger.debug(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
             break;
         case "push" /* ActionsEventType.PUSH */:
