@@ -89160,8 +89160,8 @@ class Discovery {
                 ignoreReturnCode: true, // Ignore non-zero exit codes by default
                 silent: false, // Keep false for debugging
                 env: filteredEnv, // Use filtered env with only string values
-                listeners: {
-                    stderr: (data) => print(data)
+                listeners: { // Common listeners for all Git commands
+                //stderr: (data: Buffer) => print(data) // for debug only
                 }
             };
             function print(data) {
@@ -89422,13 +89422,13 @@ const handleCurrentEvent = async () => {
             const scmResxFiles = discovery.getScmResxFiles();
             _logger.debug(`Tests: ${tests.length}`, tests);
             for (let t of tests) {
-                _logger.debug(`Test: ${t.name}, type = ${t.uftOneTestType}`);
-                _logger.debug(` Actions:`);
+                _logger.debugX(`Test: ${t.name}, type = ${t.uftOneTestType}`);
+                _logger.debugX(` Actions:`);
                 for (let a of t.actions) {
-                    _logger.debug(`  ${a.name}`);
+                    _logger.debugX(`  ${a.name}`);
                     if (a.parameters) {
                         for (let p of a.parameters) {
-                            _logger.debug(`   Param: ${p.name} - ${p.direction}`);
+                            _logger.debugX(`   Param: ${p.name} - ${p.direction}`);
                         }
                     }
                 }
@@ -89692,6 +89692,11 @@ class Logger {
     }
     debug(message, obj) {
         this.log(LogLevel.DEBUG, message, obj);
+    }
+    debugX(message) {
+        if (LogLevel.DEBUG < this.minLevel)
+            return;
+        console.log(message);
     }
     info(message, obj) {
         this.log(LogLevel.INFO, message, obj);

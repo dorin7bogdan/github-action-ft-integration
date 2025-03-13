@@ -61,6 +61,10 @@ export class Logger {
   public debug(message: string, obj?: object | undefined): void {
     this.log(LogLevel.DEBUG, message, obj);
   }
+  public debugX(message: string): void {
+    if (LogLevel.DEBUG < this.minLevel) return;
+    console.log(message);
+  }
   public info(message: string, obj?: object | undefined): void {
     this.log(LogLevel.INFO, message, obj);
   }

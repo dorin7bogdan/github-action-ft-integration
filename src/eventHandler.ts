@@ -100,13 +100,13 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
       _logger.debug(`Tests: ${tests.length}`, tests);
       for (let t of tests) {
-        _logger.debug(`Test: ${t.name}, type = ${t.uftOneTestType}`);
-        _logger.debug(` Actions:`);
+        _logger.debugX(`Test: ${t.name}, type = ${t.uftOneTestType}`);
+        _logger.debugX(` Actions:`);
         for (let a of t.actions) {
-          _logger.debug(`  ${a.name}`);
+          _logger.debugX(`  ${a.name}`);
           if (a.parameters) {
             for (let p of a.parameters) {
-              _logger.debug(`   Param: ${p.name} - ${p.direction}`);
+              _logger.debugX(`   Param: ${p.name} - ${p.direction}`);
             }
           }
         }

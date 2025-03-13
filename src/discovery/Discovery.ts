@@ -13,7 +13,6 @@ import { DOMParser } from 'xmldom';
 import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
-import { EventEmitter } from 'events';
 
 const _logger: Logger = new Logger('Discovery');
 const GUI_TEST_FILE = 'Test.tsp';
@@ -538,7 +537,7 @@ export default class Discovery {
         silent: false,         // Keep false for debugging
         env: filteredEnv,      // Use filtered env with only string values
         listeners: {          // Common listeners for all Git commands
-          stderr: (data: Buffer) => print(data)
+          //stderr: (data: Buffer) => print(data) // for debug only
         }
       };
 
