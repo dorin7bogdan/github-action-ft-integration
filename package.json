@@ -21,8 +21,10 @@
     "@actions/github": "^6.0.0",
     "@microfocus/alm-octane-js-rest-sdk": "^25.1.0",
     "adm-zip": "^0.5.16",
+    "diff": "^7.0.0",
     "fs-extra": "^11.3.0",
     "globby": "^14.1.0",
+    "isomorphic-git": "^1.29.0",
     "ole-doc": "^0.1.1",
     "xmldom": "^0.6.0",
     "yaml": "^2.7.0"
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@tsconfig/node22": "^22.0.0",
     "@types/adm-zip": "^0.5.7",
+    "@types/diff": "^7.0.1",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.10",

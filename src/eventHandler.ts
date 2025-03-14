@@ -33,6 +33,7 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
+import { saveSyncedCommit, getSyncedCommit, getLastCommitSha } from './utils/utils';
 import { context } from '@actions/github';
 import {
   buildExecutorCiId,
@@ -46,29 +47,31 @@ import * as core from '@actions/core';
 import Discovery from './discovery/Discovery';
 import { ToolType } from './dto/ft/ToolType';
 import { UftoParamDirection } from './dto/ft/UftoParamDirection';
+import ScmChanges from './discovery/ScmChangesWrapper';
 
 const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
 const TESTING_TOOL_TYPE = 'testingToolType';
 
 export const handleCurrentEvent = async (): Promise<void> => {
-  core.info('BEGIN handleEvent ...');
+  _logger.info('BEGIN handleEvent ...');
 
   const event: ActionsEvent = context.payload;
   const eventName = context.eventName;
 
   if (event) {
-    core.debug(`event = ${JSON.stringify(event)}`);
+    _logger.debug(`event = ${JSON.stringify(event)}`);
   } else {
-    core.debug('event is null or undefined');
+    _logger.debug('event is null or undefined');
   }
 
-  core.info(`eventType = ${event?.action || eventName}`);
   const eventType = getEventType(event?.action || eventName);
   if (eventType === ActionsEventType.UNKNOWN_EVENT) {
-    core.info('Unknown event type');
+    _logger.info('Unknown event type');
     return;
   }
+  _logger.info(`eventType = ${event?.action || eventName}`);
+
   const serverUrl = context.serverUrl;
   const { owner, repo } = context.repo;
   const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
@@ -86,16 +89,22 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const workflowRunId = event.workflow_run?.id;
   const branchName = event.workflow_run?.head_branch;*/
 
-  core.info(`Current repository URL: ${repoUrl}`);
+  _logger.info(`Current repository URL: ${repoUrl}`);
 
+  const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
+
+  _logger.info(`Working directory: ${workDir}`);
+  let toolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
+  if (toolType.trim() === "") {
+    toolType = UFT;
+  }
+  const commitSha = await getLastCommitSha();
+  _logger.debug(`Current/last commit SHA: ${commitSha}`);
+  const discovery = new Discovery(ToolType.fromType(toolType), workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      let toolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
-      if (toolType.trim() == "") {
-        toolType = UFT;
-      }
-      const discovery = new Discovery(ToolType.fromType(toolType));
-      await discovery.startFullScanning(repoUrl);
+    case ActionsEventType.PUSH:
+      await discovery.startScanning(repoUrl);
       const tests = discovery.getTests();
       const scmResxFiles = discovery.getScmResxFiles();
 
@@ -115,19 +124,19 @@ export const handleCurrentEvent = async (): Promise<void> => {
       }
       _logger.debug(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
 
-      break;
-    case ActionsEventType.PUSH:
-      core.info('WORKFLOW_STARTED...');
+      // TODO sync the tests with Octane
+      await saveSyncedCommit(commitSha);
+
       break;
     case ActionsEventType.WORKFLOW_FINISHED:
-      core.info('WORKFLOW_FINISHED.');
+      _logger.info('WORKFLOW_FINISHED.');
       break;
     default:
-      core.info(`default -> eventType = ${eventType}`);
+      _logger.info(`default -> eventType = ${eventType}`);
       break;
   }
 
-  core.info('END handleEvent ...');
+  _logger.info('END handleEvent ...');
 
 };
 

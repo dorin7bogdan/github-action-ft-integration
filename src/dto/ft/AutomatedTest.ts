@@ -8,7 +8,7 @@ export default interface AutomatedTest extends SupportsOctaneStatus, SupportsMov
   name: string;
   packageName: string;
   oldName?: string;
-  oldPackageName?: string;
+  oldPackageName?: string | null;
   isMoved?: boolean;
   uftOneTestType: UftoTestType;
   missingScmRepository?: boolean;

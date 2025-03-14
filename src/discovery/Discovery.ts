@@ -1,5 +1,5 @@
 import { Logger } from '../utils/logger';
-import * as exec from '@actions/exec';
+import { exec } from '@actions/exec';
 import { context } from '@actions/github';
 import * as core from '@actions/core';
 import * as fs from 'fs';
@@ -13,6 +13,8 @@ import { DOMParser } from 'xmldom';
 import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
+import ScmChangesWrapper, { ScmAffectedFileWrapper } from './ScmChangesWrapper';
+import { getParentFolderFullPath, getSyncedCommit, getTestType, isBlank, isTestMainFile } from '../utils/utils';
 
 const _logger: Logger = new Logger('Discovery');
 const GUI_TEST_FILE = 'Test.tsp';
@@ -28,7 +30,7 @@ const UFT_ACTION_TYPE_VALUE = "1";
 const UFT_ACTION_KIND_VALUE = "16";
 const UFT_ACTION_SCOPE_VALUE = "0";
 const ACTION_0 = "action0";
-const RESOURCE_MTR_FILE = "resource.mtr";
+const RESOURCE_MTR = "resource.mtr";
 const UFT_PARAM_ARGS_COLL_NODE_NAME = "ArgumentsCollection";
 const UFT_PARAM_ARG_NAME_NODE_NAME = "ArgName";
 const UFT_PARAM_ARG_DEFAULT_VALUE_NODE_NAME = "ArgDefaultValue";
@@ -36,6 +38,13 @@ const UFT_ACTION_DESCRIPTION_NODE_NAME = "Description";
 const ARG_DIRECTION = "ArgDirection";
 const TEXT_XML = "text/xml";
 const _folders2skip = [".git", ".github"];
+const ADD = 'ADD';
+const DELETE = 'DELETE';
+const EDIT = 'EDIT';
+const _XLSX = ".xlsx";
+const _XLS = ".xls";
+const _ST = ".st";
+const _TSP = ".tsp";
 
 class TspParseError extends Error {
   constructor(message: string) {
@@ -46,70 +55,253 @@ class TspParseError extends Error {
 
 export default class Discovery {
   private _toolType: ToolType;
+  private _workDir: string;
   private _tests: AutomatedTest[] = [];
   private _scmResxFiles: ScmResourceFile[] = [];
-  constructor(toolType: ToolType) {
+  constructor(toolType: ToolType, workDir: string) {
     _logger.info('Discovery constructor ...');
     this._toolType = toolType;
+    this._workDir = workDir;
+  }
+
+  public hasChanges(): boolean {
+    return this._tests.length > 0 || this._scmResxFiles.length > 0;
   }
 
   public getTests(): AutomatedTest[] {
     return this._tests;
   }
 
+  public getNewTests(): ReadonlyArray<AutomatedTest> {
+    return this.getTestsByOctaneStatus(OctaneStatus.NEW);
+  }
+
+  public getUpdatedTests(): ReadonlyArray<AutomatedTest> {
+    return this.getTestsByOctaneStatus(OctaneStatus.MODIFIED);
+  }
+
+  public getDeletedTests(): ReadonlyArray<AutomatedTest> {
+    return this.getTestsByOctaneStatus(OctaneStatus.DELETED);
+  }
+
+  private getTestsByOctaneStatus(status: OctaneStatus): ReadonlyArray<AutomatedTest> {
+    return Object.freeze(this._tests.filter(automatedTest => automatedTest.octaneStatus === status));
+  }
+
+  public getNewScmResxFiles(): ReadonlyArray<ScmResourceFile> {
+    return this.getResxFilesByOctaneStatus(OctaneStatus.NEW);
+  }
+
+  public getDeletedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
+    return this.getResxFilesByOctaneStatus(OctaneStatus.DELETED);
+  }
+
+  public getupdatedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
+    return this.getResxFilesByOctaneStatus(OctaneStatus.MODIFIED);
+  }
+
+  private getResxFilesByOctaneStatus(status: OctaneStatus): ReadonlyArray<ScmResourceFile> {
+    return Object.freeze(this._scmResxFiles.filter(scmResxFile => scmResxFile.octaneStatus === status));
+  }  
+
   public getScmResxFiles(): ScmResourceFile[] {
     return this._scmResxFiles;
   }
 
-  public async startFullScanning(repoUrl: string | undefined): Promise<void> {
+  private removeTestDuplicatedForUpdateTests() {
+    const keys = new Set<string>();
+    const testsToRemove: AutomatedTest[] = [];
+
+    for (const test of this.getUpdatedTests()) {
+        const key = `${test.packageName}_${test.name}`;
+        if (keys.has(key)) {
+            testsToRemove.push(test);
+        }
+        keys.add(key);
+    }
+
+    this._tests = this._tests.filter(test => !testsToRemove.includes(test));
+  }
+
+  private removeFalsePositiveDataTables(tests: ReadonlyArray<AutomatedTest>, scmResxFiles: ReadonlyArray<ScmResourceFile>) {
+    if (tests.length === 0 || scmResxFiles.length === 0) return;
+
+    // Precompute test paths into a Set
+    const testPaths = new Set<string>(tests.map(t => isBlank(t.packageName) ? t.name : path.join(t.packageName, t.name)));
+
+    // Single-pass filter on _scmResxFiles
+    this._scmResxFiles = this._scmResxFiles.filter(file => {
+      const parentName = path.dirname(file.relativePath);
+      return !Array.from(testPaths).some(testPath => parentName.includes(testPath));
+    });
+  }
+
+  private sortTests(): void {
+    this._tests.sort((o1, o2) => {
+      const comparePackage = o1.packageName.localeCompare(o2.packageName);
+      if (comparePackage === 0) {
+        return o1.name.localeCompare(o2.name);
+      } else {
+        return comparePackage;
+      }
+    });
+  }
+
+  private sortDataTables(): void {
+    this._scmResxFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  }  
+
+  public async startScanning(repoUrl: string | undefined): Promise<void> {
     _logger.info('BEGIN startFullScanning ...');
     if (!repoUrl || repoUrl?.trim() === '') {
       throw new Error('Repository URL is required!');
     }
-    const { workDir, didFullCheckout } = await this.checkoutRepo();
+    const didFullCheckout = await this.checkoutRepo();
     if (didFullCheckout) {
-      await this.doFullDiscovery(workDir);
+      await this.doFullDiscovery();
     } else {
-      await this.doSyncDiscovery(workDir);
+      const syncedCommit = await getSyncedCommit();
+      if (syncedCommit && syncedCommit.trim() !== '') {
+        _logger.info(`Synced commit: ${syncedCommit}`);
+        const affectedFiles = await ScmChangesWrapper.getScmChanges(this._workDir, syncedCommit);
+        await this.doSyncDiscovery(affectedFiles);
+      } else {
+        await this.doFullDiscovery();
+      }
     }
     _logger.info('END startFullScanning ...');
   }
 
-  private async doFullDiscovery(workDir: string) {
-    await this.scanDirRecursively(workDir, workDir);
+  private async doFullDiscovery() {
+    await this.scanDirRecursively(this._workDir);
   }
 
-  private async doSyncDiscovery(workDir: string) {
-    await this.scanDirRecursively(workDir, workDir);
+  private async doSyncDiscovery(affectedFiles: ScmAffectedFileWrapper[]) {
+    await this.doChangeSetDetection(affectedFiles);
+    this.removeTestDuplicatedForUpdateTests();
+    this.removeFalsePositiveDataTables(this.getDeletedTests(), this.getDeletedScmResxFiles());
+    this.removeFalsePositiveDataTables(this.getNewTests(), this.getNewScmResxFiles());
+    this.sortTests();
+    this.sortDataTables();
   }
 
-  private async scanDirRecursively(root: string, subDirPath: string) {
-    if (_folders2skip.includes(path.basename(subDirPath))) {
+  private async doChangeSetDetection(affectedFiles: ScmAffectedFileWrapper[]) {
+    for (const affectedFileWrapper of affectedFiles) {
+      if (affectedFileWrapper.newPath.startsWith('"')) {
+        //TODO: not sure if must handle this case
+        //result.setHasQuotedPaths(true);
+      }
+      const affectedFileFullPath = path.join(this._workDir, affectedFileWrapper.newPath);
+      if (isTestMainFile(affectedFileFullPath)) {
+        await this.handleTestChanges(affectedFileWrapper, affectedFileFullPath);
+      } else if (this._toolType === ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
+        await this.handleUftDataTableChanges(affectedFileWrapper, affectedFileFullPath);
+      } else if (this._toolType === ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
+        await this.handleUftActionChanges(affectedFileWrapper, affectedFileFullPath);
+      }
+    }
+  }
+  private async handleUftActionChanges(affectedFileWrapper: ScmAffectedFileWrapper, affectedFileFullPath: string) {
+    // TODO: not implemented yet in java
+  }
+  private isUftoActionFile(filePath: string) {
+    return path.basename(filePath).toLowerCase() === RESOURCE_MTR;
+  }
+  private async handleUftDataTableChanges(affFileWrapper: ScmAffectedFileWrapper, affFileFullPath: string) {
+    const resxFile = this.createScmResxFile(affFileFullPath, affFileWrapper.oldId, affFileWrapper.newId);
+    const fileExists = fs.existsSync(affFileFullPath);
+
+    if (affFileWrapper.changeType === ADD) {
+      const testDirFullPath = getParentFolderFullPath(affFileFullPath);
+      const items = await fs.promises.readdir(testDirFullPath) ?? [];
+      const testType = await this.getTestType(items);
+      if (testType.isNone()) { // TODO check if this condition is really correct for datatable
+        if (fileExists) {
+          this._scmResxFiles.push(resxFile);
+        }
+      }
+    } else if (affFileWrapper.changeType === DELETE) {
+      if (!fileExists) {
+        resxFile.octaneStatus = OctaneStatus.DELETED;
+        this._scmResxFiles.push(resxFile);
+      }
+    }
+  }
+  private async handleTestChanges(affFileWrapper: ScmAffectedFileWrapper, affFileFullPath: string) {
+    const testDirFullPath = getParentFolderFullPath(affFileFullPath);
+    const fileExists = fs.existsSync(affFileFullPath);
+    const testType = getTestType(affFileWrapper.newPath);
+    const test = await this.createAutomatedTest(testDirFullPath, testType, affFileWrapper.oldId, affFileWrapper.newId);
+
+    if (affFileWrapper.changeType === ADD) {
+      fileExists && this._tests.push(test);
+    } else if (affFileWrapper.changeType === DELETE) {
+      if (!fileExists) {
+        test.executable = false;
+        test.octaneStatus = OctaneStatus.DELETED;
+        this._tests.push(test);
+      }
+    } else if (affFileWrapper.changeType === EDIT) {
+      if (fileExists) {
+        this.updateOldData(test, affFileWrapper);
+        test.isMoved = this.isTestMoved(test);
+        test.octaneStatus = OctaneStatus.MODIFIED;
+        this._tests.push(test);      
+      }
+    }
+  }
+  
+  private updateOldData(test: AutomatedTest, affFileWrapper: ScmAffectedFileWrapper) {
+    const oldPath = affFileWrapper.oldPath;
+    if(!isBlank(oldPath)) {
+        const parts = oldPath!.split("\\");
+        const oldTestName = parts[parts.length - 2];
+        test.oldName = oldTestName;
+        // make sure path in windows style
+        let oldPackageName = "";
+        if(parts.length > 2) { // only in case the test is not under the root folder
+          //TODO ask Itay if we must replace / with \/ or with \
+          oldPackageName = oldPath!.substring(0, oldPath!.indexOf(oldTestName) - 1).replace(/\//g, "\\/");
+        }
+        test.oldPackageName = oldPackageName;
+    }
+}
+
+  // a test is considered moved either if its name has changed or its folder path
+  private isTestMoved(test: AutomatedTest): boolean {
+    if (!isBlank(test.oldName) && !isBlank(test.oldPackageName) && !isBlank(test.name) && !isBlank(test.packageName)) {
+      return test.name !== test.oldName || test.packageName !== test.oldPackageName;
+    }
+    return false;
+  }
+
+  private async scanDirRecursively(subDirFullPath: string) {
+    if (_folders2skip.includes(path.basename(subDirFullPath))) {
       return;
     }
 
-    const items = await fs.promises.readdir(subDirPath) ?? [];
-    const testType = await this.getUftoTestType(items);
+    const items = await fs.promises.readdir(subDirFullPath) ?? [];
+    const testType = await this.getTestType(items);
     if (testType.isNone()) {
       for (const item of items) {
-        const subDirOrFilePath = path.join(subDirPath, item);
-        const stats = await fs.promises.stat(subDirOrFilePath);
+        const fullPath = path.join(subDirFullPath, item);
+        const stats = await fs.promises.stat(fullPath);
         if (stats.isDirectory()) {
-          await this.scanDirRecursively(root, subDirOrFilePath);
-        } else if (this.isUftoDataTableFile(item)) {
-          const scmResxFile = this.createScmResxFile(root, subDirOrFilePath);
+          await this.scanDirRecursively(fullPath);
+        } else if (this.isDataTableFile(item)) {
+          const scmResxFile = this.createScmResxFile(fullPath);
           this._scmResxFiles.push(scmResxFile);
         }
       }
     } else if (!(this._toolType === ToolType.MBT && testType === UftoTestType.API)) {
-      const automTest = await this.createAutomatedTest(root, subDirPath, testType);
+      const automTest = await this.createAutomatedTest(subDirFullPath, testType);
       this._tests.push(automTest);
     }
   }
 
-  private async createAutomatedTest(root: string, subDirPath: string, testType: UftoTestType): Promise<AutomatedTest> {
-    const testName = path.basename(subDirPath);
-    const relativePath = this.getRelativePath(root, subDirPath);
+  private async createAutomatedTest(subDirFullPath: string, testType: UftoTestType, oldId?: string, newId?: string): Promise<AutomatedTest> {
+    const testName = path.basename(subDirFullPath);
+    const relativePath = this.getRelativePath(subDirFullPath);
     let packageName = "";
     if (relativePath.length > testName.length) {
       const segments = relativePath.split(path.sep);
@@ -122,10 +314,12 @@ export default class Discovery {
       uftOneTestType: testType,
       executable: true,
       actions: [],
-      octaneStatus: OctaneStatus.NEW
+      octaneStatus: OctaneStatus.NEW,
+      changeSetSrc: oldId,
+      changeSetDst: newId
     };
 
-    const doc = await this.getDocument(subDirPath, testType);
+    const doc = await this.getDocument(subDirFullPath, testType);
     let descr = this.getTestDescription(doc, testType);
     descr = this.convertToHtmlFormatIfRequired(descr);
     test.description = descr ?? "";
@@ -133,7 +327,7 @@ export default class Discovery {
     // discover actions only for mbt toolType and gui tests
     if (this._toolType == ToolType.MBT && testType === UftoTestType.GUI) {
       const actionPathPrefix = this.getActionPathPrefix(test, false);
-      const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, testName, subDirPath);
+      const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, testName, subDirFullPath);
       test.actions = actions;    
     }
 
@@ -162,26 +356,26 @@ export default class Discovery {
   private fillActionsLogicalName(document: Document, actionMap: Map<string, UftoTestAction>, actionPathPrefix: string): void {
     const dependencyNodes = document.getElementsByTagName(UFT_DEPENDENCY_NODE_NAME);
     for (let i = 0; i < dependencyNodes.length; i++) {
-        const dependencyNode = dependencyNodes.item(i);
-        if (dependencyNode) {
-            const attributes = dependencyNode.attributes;
-            const type = attributes.getNamedItem(UFT_ACTION_TYPE_ATTR)?.nodeValue;
-            const kind = attributes.getNamedItem(UFT_ACTION_KIND_ATTR)?.nodeValue;
-            const scope = attributes.getNamedItem(UFT_ACTION_SCOPE_ATTR)?.nodeValue;
-            const logicalName = attributes.getNamedItem(UFT_ACTION_LOGICAL_ATTR)?.nodeValue;
+      const dependencyNode = dependencyNodes.item(i);
+      if (dependencyNode) {
+        const attributes = dependencyNode.attributes;
+        const type = attributes.getNamedItem(UFT_ACTION_TYPE_ATTR)?.nodeValue;
+        const kind = attributes.getNamedItem(UFT_ACTION_KIND_ATTR)?.nodeValue;
+        const scope = attributes.getNamedItem(UFT_ACTION_SCOPE_ATTR)?.nodeValue;
+        const logicalName = attributes.getNamedItem(UFT_ACTION_LOGICAL_ATTR)?.nodeValue;
 
-            if (type === UFT_ACTION_TYPE_VALUE && kind === UFT_ACTION_KIND_VALUE && scope === UFT_ACTION_SCOPE_VALUE && logicalName) {
-                const dependencyStr = dependencyNode.textContent;
-                const actionName = dependencyStr?.substring(0, dependencyStr.indexOf("\\"));
-                if (actionName && actionName.toLowerCase() !== ACTION_0) { // action0 is not relevant
-                    const action = actionMap.get(actionName);
-                    if (action) {
-                        action.logicalName = logicalName;
-                        this.setActionPath(action, actionPathPrefix);
-                    }
-                }
+        if (type === UFT_ACTION_TYPE_VALUE && kind === UFT_ACTION_KIND_VALUE && scope === UFT_ACTION_SCOPE_VALUE && logicalName) {
+          const dependencyStr = dependencyNode.textContent;
+          const actionName = dependencyStr?.substring(0, dependencyStr.indexOf("\\"));
+          if (actionName && actionName.toLowerCase() !== ACTION_0) { // action0 is not relevant
+            const action = actionMap.get(actionName);
+            if (action) {
+                action.logicalName = logicalName;
+                this.setActionPath(action, actionPathPrefix);
             }
+          }
         }
+      }
     }
   }
 
@@ -192,18 +386,18 @@ export default class Discovery {
 
   private async readParameters(dirPath: string, actionMap: Map<string, UftoTestAction>): Promise<void> {
     for (const [actionName, action] of actionMap.entries()) {
-        const actionFolder = `${dirPath}/${actionName}`;
-        try {
-            const resourceMtrFile = await this.getFileIfExist(actionFolder, RESOURCE_MTR_FILE);
-            if (resourceMtrFile) {
-                await this.parseActionMtrFile(resourceMtrFile, action);
-            } else {
-                console.warn(`resource.mtr file for action ${actionName} does not exist`);
-            }
-        } catch (error) {
-            action.parameters = [];
-            console.warn(`folder for action ${actionName} does not exist`, error);
+      const actionFolder = `${dirPath}/${actionName}`;
+      try {
+        const resourceMtrFile = await this.getFileIfExist(actionFolder, RESOURCE_MTR);
+        if (resourceMtrFile) {
+          await this.parseActionMtrFile(resourceMtrFile, action);
+        } else {
+          _logger.warn(`resource.mtr file for action ${actionName} does not exist`);
         }
+      } catch (error) {
+        action.parameters = [];
+        _logger.warn(`folder for action ${actionName} does not exist: ${(error as Error).message}`);
+      }
     }
   }
 
@@ -212,18 +406,18 @@ export default class Discovery {
 
     const componentNodes = document.getElementsByTagName(UFT_COMPONENT_NODE_NAME);
     for (let i = 0; i < componentNodes.length; i++) {
-        const componentNode = componentNodes.item(i);
-        if (componentNode) {
-            const actionName = componentNode.textContent;
-            if (actionName && actionName.toLowerCase() !== ACTION_0) {
-                const action: UftoTestAction = {
-                    name: actionName,
-                    testName: testName,
-                    octaneStatus: OctaneStatus.NEW
-                };
-                actionMap.set(actionName, action);
-            }
+      const componentNode = componentNodes.item(i);
+      if (componentNode) {
+        const actionName = componentNode.textContent;
+        if (actionName && actionName.toLowerCase() !== ACTION_0) {
+          const action: UftoTestAction = {
+            name: actionName,
+            testName: testName,
+            octaneStatus: OctaneStatus.NEW
+          };
+          actionMap.set(actionName, action);
         }
+      }
     }
 
     return actionMap;
@@ -281,12 +475,12 @@ export default class Discovery {
 
     let description = "";
     if (testType == UftoTestType.GUI) {
-        description = doc.getElementsByTagName("Description").item(0)?.textContent ?? "";
+      description = doc.getElementsByTagName("Description").item(0)?.textContent ?? "";
     } else {
-        description = this.getTestDescriptionFromAPITest(doc) ?? "";
+      description = this.getTestDescriptionFromAPITest(doc) ?? "";
     }
     if (description != null) {
-        description = description.trim();
+      description = description.trim();
     }
     return description;
   }
@@ -299,17 +493,17 @@ export default class Discovery {
 
     const actions = document.getElementsByTagName("Action");
     for (let i = 0; i < actions.length; i++) {
-        const action = actions.item(i);
-        if (action) {
-            const attributes = action.attributes;
-            const internalNameAttr = attributes.getNamedItem("internalName");
-            if (internalNameAttr && internalNameAttr.nodeValue === "MainAction") {
-                const descriptionAttr = attributes.getNamedItem("description");
-                if (descriptionAttr) {
-                    return descriptionAttr.nodeValue;
-                }
-            }
+      const action = actions.item(i);
+      if (action) {
+        const attributes = action.attributes;
+        const internalNameAttr = attributes.getNamedItem("internalName");
+        if (internalNameAttr && internalNameAttr.nodeValue === "MainAction") {
+          const descriptionAttr = attributes.getNamedItem("description");
+          if (descriptionAttr) {
+            return descriptionAttr.nodeValue;
+          }
         }
+      }
     }
     return null;
   }
@@ -345,22 +539,21 @@ export default class Discovery {
 
   private async extractXmlFromTspOrMtrFile(filePath: string): Promise<string> {
     try {
-      // Create OLE compound document with proper typing
       const doc = new OleCompoundDoc(filePath);
 
-      // Convert doc.read() to async/await
       await new Promise<void>((resolve, reject) => {
         doc.on('ready', () => resolve());
-        doc.on('err', (err: Error) => reject(new Error(`OLE parsing error: ${err.message}`)));
+        doc.on('err', (err: Error) => {
+          _logger.error(err.message);
+          reject(new Error(`OLE parsing error: ${err.message}`));
+        });
         doc.read();
       });
-
-      //_logger.debug("RootStorage: ", doc._rootStorage);
 
       let xmlData = '';
 
       if (doc._rootStorage) {
-        const stream = doc._rootStorage.stream(COMPONENT_INFO);
+        const stream = doc._rootStorage!.stream(COMPONENT_INFO);
         if (stream) {
           const content = await this.readStreamToBuffer(stream);
           const fromUnicodeLE = this.bufferToUnicodeLE(content);
@@ -473,20 +666,21 @@ export default class Discovery {
     return (testPackage.trim() == "" ? "" : testPackage + "\\") + testName;
   }
 
-  private isUftoDataTableFile(file: string) : boolean {
-    return path.extname(file) === ".xlsx" || path.extname(file) === ".xls";
+  private isDataTableFile(file: string) : boolean {
+    const ext = path.extname(file).toLowerCase();
+    return ext === _XLSX || ext === _XLS;
   }
 
-  private async getUftoTestType(paths: string[]): Promise<UftoTestType> {
+  private async getTestType(paths: string[]): Promise<UftoTestType> {
     if (paths == null || paths.length === 0) {
       return UftoTestType.None;
     }
     for (const p of paths) {
       const ext = path.extname(p).toLowerCase();
-      if (ext === ".st") {
+      if (ext === _ST) {
         return UftoTestType.API;
       }
-      if (ext === ".tsp") {
+      if (ext === _TSP) {
         return UftoTestType.GUI;
       }
     }
@@ -494,21 +688,23 @@ export default class Discovery {
     return UftoTestType.None;
   }
 
-  private createScmResxFile(root: string, fullPathFile: string): ScmResourceFile {
+  private createScmResxFile(fullFilePath: string, oldId?: string, newId?: string): ScmResourceFile {
     const resxFile: ScmResourceFile = {
-        name: fullPathFile,
-        relativePath: this.getRelativePath(root, fullPathFile),
-        octaneStatus: OctaneStatus.NEW
+        name: fullFilePath,
+        relativePath: this.getRelativePath(fullFilePath),
+        octaneStatus: OctaneStatus.NEW,
+        changeSetSrc: oldId,
+        changeSetDst: newId
     };
 
     return resxFile;
   }
 
-  private getRelativePath(root: string, subPath: string): string {
-    return path.relative(root, subPath);
+  private getRelativePath(subPath: string): string {
+    return path.relative(this._workDir, subPath);
   }
 
-  private async checkoutRepo(): Promise<{ workDir: string, didFullCheckout: boolean }> {
+  private async checkoutRepo(): Promise<boolean> {
     _logger.info('BEGIN checkoutRepo ...');
     try {
       const token = core.getInput('githubToken', { required: true });
@@ -516,8 +712,6 @@ export default class Discovery {
       const serverUrl = context.serverUrl;
       let didFullCheckout = false;
 
-      _logger.info(`Working directory: ${process.cwd()}`);
-      const workDir = process.cwd();
       const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
       const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
       _logger.debug(`Expected authRepoUrl: ${authRepoUrl}`);
@@ -532,7 +726,7 @@ export default class Discovery {
 
       // Configure Git options with common properties
       const gitOptions = {
-        cwd: workDir,          // Common working directory
+        cwd: this._workDir,          // Common working directory
         ignoreReturnCode: true, // Ignore non-zero exit codes by default
         silent: false,         // Keep false for debugging
         env: filteredEnv,      // Use filtered env with only string values
@@ -549,14 +743,14 @@ export default class Discovery {
       };
 
       // Check if _work\ufto-tests is a Git repository
-      const gitDir = path.join(workDir, '.git');
+      const gitDir = path.join(this._workDir, '.git');
       if (fs.existsSync(gitDir)) {
         _logger.info('Working directory is a Git repo, checking remote URL...');
 
         // Get the current remote URL with specific stdout capture
         let currentRemoteUrl = '';
         const getUrlOutput: string[] = [];
-        const getUrlExitCode = await exec.exec('git', ['remote', 'get-url', 'origin'], {
+        const getUrlExitCode = await exec('git', ['remote', 'get-url', 'origin'], {
           ...gitOptions,
           listeners: {
             ...gitOptions.listeners,
@@ -575,7 +769,7 @@ export default class Discovery {
           _logger.info('Remote URL base matches.');
         } else {
           _logger.info('Remote URL does not match, setting to authenticated URL...');
-          const setUrlExitCode = await exec.exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
+          const setUrlExitCode = await exec('git', ['remote', 'set-url', 'origin', authRepoUrl], gitOptions);
           if (setUrlExitCode !== 0) {
             throw new Error(`git remote set-url failed with exit code ${setUrlExitCode}`);
           }
@@ -583,23 +777,24 @@ export default class Discovery {
 
         // Perform the pull
         _logger.info('Pulling updates...');
-        const pullExitCode = await exec.exec('git', ['pull'], gitOptions);
+        const pullExitCode = await exec('git', ['pull'], gitOptions);
         if (pullExitCode !== 0) {
           throw new Error(`git pull failed with exit code ${pullExitCode}`);
         }
       } else {
-        _logger.info(`Cloning repository into ${workDir}`);
-        const cloneExitCode = await exec.exec('git', ['clone', authRepoUrl, '.'], gitOptions);
+        _logger.info(`Cloning repository into ${this._workDir}`);
+        const cloneExitCode = await exec('git', ['clone', authRepoUrl, '.'], gitOptions);
         if (cloneExitCode !== 0) {
           throw new Error(`git clone failed with exit code ${cloneExitCode}`);
         }
         didFullCheckout = true;
       }
       _logger.info('END checkoutRepo ...');
-      return { workDir, didFullCheckout };
+      return didFullCheckout;
     } catch (error: any) {
       _logger.error('Error in checkoutRepo: ' + error?.message);
       throw error;
     }
   }
 }
+

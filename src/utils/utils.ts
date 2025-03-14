@@ -27,7 +27,106 @@
  * limitations under the License.
  */
 
+import * as fs from 'fs/promises';
 import * as path from 'path';
+import { UftoTestType } from '../dto/ft/UftoTestType';
+import { context } from '@actions/github';
+import { exec } from '@actions/exec';
+
+// File to store the string (hidden file to avoid cluttering the repo)
+const STORAGE_FILE = path.join(process.cwd(), '.synced-commit-sha.txt');
+const ACTIONS_XML = 'actions.xml';
+const _TSP = '.tsp';
+const _ST = '.st';
+const UTF8 = 'utf8';
+
+async function getLastCommitSha(): Promise<string> {
+  let sha = context.sha;
+  if (!sha) {
+      let output = '';
+      const options = {
+          listeners: {
+              stdout: (data: Buffer) => {
+                  output += data.toString();
+              }
+          },
+          silent: true // Suppress default logging, use core.info instead
+      };
+
+      // Execute git rev-parse HEAD^ to get the parent commit SHA
+      await exec('git', ['rev-parse', 'HEAD^'], options);
+      sha = output.trim();
+
+      if (!sha) {
+          throw new Error('Failed to retrieve last commit SHA');
+      }
+  }
+
+  return sha;
+}
+
+/**
+ * Stores a string in the working directory
+ * @param data The string to store
+ */
+async function saveSyncedCommit(data: string): Promise<void> {
+    if (isBlank(data)) 
+      return;
+    try {
+        await fs.writeFile(STORAGE_FILE, data, UTF8);
+        console.log(`Saved string to ${STORAGE_FILE}`);
+    } catch (error) {
+        throw new Error(`Failed to save string: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * Retrieves the stored string from the working directory
+ * @returns The stored string, or undefined if the file doesn't exist
+ */
+async function getSyncedCommit(): Promise<string | undefined> {
+    try {
+        const data = await fs.readFile(STORAGE_FILE, UTF8);
+        console.log(`Loaded string from ${STORAGE_FILE}`);
+        return data;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            // File doesn't exist yet, return undefined
+            return undefined;
+        }
+        throw new Error(`Failed to load string: ${(error as Error).message}`);
+    }
+}
+
+function isTestMainFile(file: string): boolean {
+  const f = file.toLowerCase();
+  return f.endsWith(_TSP) || f.endsWith(_ST) || f === ACTIONS_XML;
+}
+
+function getParentFolderFullPath(fullFilePath: string): string {
+  const resolvedPath = path.resolve(fullFilePath);
+  return path.dirname(resolvedPath);
+}
+
+function getTestType(filePath: string): UftoTestType {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === _ST || filePath == ACTIONS_XML) {
+      return UftoTestType.API;
+    } else if (ext === _TSP) {
+      return UftoTestType.GUI;
+    } 
+
+  return UftoTestType.None;
+}
+
+/**
+ * Checks if a string is blank, empty or contains only whitespace.
+ * @param str The string to check.
+ * @returns True if the string is null, undefined, empty, or contains only whitespace.
+ */
+function isBlank(str: string | null | undefined): boolean {
+  return str === null || str === undefined || str.trim().length === 0;
+}
 
 const extractWorkflowFileName = (workflowPath: string): string => {
   return path.basename(workflowPath);
@@ -62,4 +161,4 @@ const sleep = async (milis: number): Promise<void> => {
   });
 };
 
-export { extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
+export { getLastCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
