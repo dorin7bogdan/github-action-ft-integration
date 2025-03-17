@@ -149,7 +149,7 @@ async function getDiffEntries(dir: string, oldCommit: string): Promise<DiffEntry
 
       return result;
     }
-  });
+  }) ?? [];
 
   //_logger.debug('Final results:', results);
 
