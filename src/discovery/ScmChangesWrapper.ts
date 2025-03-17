@@ -145,8 +145,8 @@ async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string
         return allowedExtensions.test(filename) || allowedFilenames.test(filename);
       };
 
-      // Process parent
-      if (parent && 'from' in parent) {
+      // Include parent if it’s a DiffEntry and not the root "."
+      if (parent && 'from' in parent && parent.from !== '.' && parent.to !== '.') {
         if (matchesFilter(parent)) {
           result.push(parent);
         }
@@ -158,15 +158,8 @@ async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string
           if (matchesFilter(child)) {
             result.push(child);
           }
-        } else if (Array.isArray(child)) {
-          // Flatten nested arrays and filter
-          result = result.concat(
-            child.filter((item): item is DiffEntry => 
-              item !== null && 
-              'from' in item && 
-              matchesFilter(item)
-            )
-          );
+        } else if (Array.isArray(child)) { // Flatten nested arrays and filter
+          result = result.concat(child.filter((item): item is DiffEntry => item !== null && 'from' in item && matchesFilter(item)));
         }
       }
 

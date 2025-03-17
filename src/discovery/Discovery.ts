@@ -187,8 +187,7 @@ export default class Discovery {
 
   private async doChangeSetDetection(affectedFiles: ScmAffectedFileWrapper[]) {
     for (const affectedFileWrapper of affectedFiles) {
-      if (affectedFileWrapper.newPath.startsWith('"')) {
-        //TODO: not sure if must handle this case
+      if (affectedFileWrapper.newPath.startsWith('"')) { //TODO: not sure if must handle this case
         //result.setHasQuotedPaths(true);
       }
       const affectedFileFullPath = path.join(this._workDir, affectedFileWrapper.newPath);
