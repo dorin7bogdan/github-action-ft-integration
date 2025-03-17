@@ -8,7 +8,7 @@ import { UftoTestType } from '../dto/ft/UftoTestType';
 import { ToolType } from '../dto/ft/ToolType';
 import AutomatedTest from '../dto/ft/AutomatedTest';
 import ScmResourceFile from '../dto/ft/ScmResourceFile';
-import OctaneStatus from '../dto/ft/OctaneStatus';
+import { OctaneStatus } from '../dto/ft/OctaneStatus';
 import { DOMParser } from 'xmldom';
 import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';

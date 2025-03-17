@@ -47,8 +47,7 @@ import * as core from '@actions/core';
 import Discovery from './discovery/Discovery';
 import { ToolType } from './dto/ft/ToolType';
 import { UftoParamDirection } from './dto/ft/UftoParamDirection';
-import ScmChanges from './discovery/ScmChangesWrapper';
-import OctaneStatus from './dto/ft/OctaneStatus';
+import { OctaneStatus } from './dto/ft/OctaneStatus';
 
 const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
@@ -109,7 +108,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
           console.log(`Test: ${t.name}, type = ${t.uftOneTestType}`);
           console.log(` packageName: ${t.packageName}`);
           console.log(` executable: ${t.executable}`);
-          console.log(` octaneStatus: ${Object.keys(OctaneStatus)[Object.values(OctaneStatus).indexOf(t.octaneStatus)]}`);
+          console.log(` octaneStatus: ${OctaneStatus.get(t.octaneStatus)}`);
           console.log(` changeSetSrc: ${t.changeSetSrc}`);
           console.log(` changeSetDst: ${t.changeSetDst}`);
           if (t.actions && t.actions.length > 0) {
@@ -119,7 +118,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
               if (a.parameters && a.parameters.length > 0) {
                 console.log(`   Parameters:`);
                 for (const p of a.parameters) {
-                  console.log(`    ${p.name} - ${UftoParamDirection[p.direction]}`);
+                  console.log(`    ${p.name} - ${UftoParamDirection.get(p.direction)}`);
                 }
               }
             }
