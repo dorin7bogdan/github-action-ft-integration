@@ -1,4 +1,4 @@
-const enum OctaneStatus {
+enum OctaneStatus {
     NEW,
     MODIFIED,
     DELETED,

@@ -48,6 +48,7 @@ import Discovery from './discovery/Discovery';
 import { ToolType } from './dto/ft/ToolType';
 import { UftoParamDirection } from './dto/ft/UftoParamDirection';
 import ScmChanges from './discovery/ScmChangesWrapper';
+import OctaneStatus from './dto/ft/OctaneStatus';
 
 const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
@@ -108,21 +109,28 @@ export const handleCurrentEvent = async (): Promise<void> => {
       const tests = discovery.getTests();
       const scmResxFiles = discovery.getScmResxFiles();
 
-      _logger.debug(`Tests: ${tests.length}`, tests);
-      for (let t of tests) {
-        _logger.debugX(`Test: ${t.name}, type = ${t.uftOneTestType}`);
-        _logger.debugX(` Actions:`);
-        for (let a of t.actions) {
-          _logger.debugX(`  ${a.name}`);
-          if (a.parameters) {
-            _logger.debugX(`   Parameters:`);
-            for (let p of a.parameters) {
-              _logger.debugX(`    ${p.name} - ${UftoParamDirection[p.direction]}`);
+      if (_logger.isDebugEnabled()) {
+        console.log(`Tests: ${tests.length}`);
+        for (let t of tests) {
+          console.debug(`Test: ${t.name}, type = ${t.uftOneTestType}`);
+          console.debug(` packageName: ${t.packageName}`);
+          console.debug(` executable: ${t.executable}`);
+          console.debug(` octaneStatus: ${Object.keys(OctaneStatus)[Object.values(OctaneStatus).indexOf(t.octaneStatus)]}`);
+          console.debug(` changeSetSrc: ${t.changeSetSrc}`);
+          console.debug(` changeSetDst: ${t.changeSetDst}`);
+          console.log(` Actions:`);
+          for (let a of t.actions) {
+            console.debug(`  ${a.name}`);
+            if (a.parameters) {
+              console.log(`   Parameters:`);
+              for (let p of a.parameters) {
+                console.debug(`    ${p.name} - ${UftoParamDirection[p.direction]}`);
+              }
             }
           }
         }
+        console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles); // TODO use for loop to print each item
       }
-      _logger.debug(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
 
       // TODO sync the tests with Octane
       await saveSyncedCommit(commitSha);

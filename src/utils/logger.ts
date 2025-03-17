@@ -38,6 +38,9 @@ enum LogLevel {
 }
 
 export class Logger {
+  isDebugEnabled() {
+    return LogLevel.DEBUG >= this.minLevel;
+  }
   private minLevel: number;
   private module: string;
   private readonly levels: {
