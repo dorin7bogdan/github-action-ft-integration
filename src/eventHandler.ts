@@ -76,12 +76,6 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const serverUrl = context.serverUrl;
   const { owner, repo } = context.repo;
   const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-/*     const repoOwner = event.repository?.owner.login;
-    const repoName = event.repository?.name;
-    if (!repoOwner || !repoName) {
-      throw new Error('Event should contain repository data!');
-    }
-    repoUrl = `${serverUrl}/${repoOwner}/${repoName}.git`; */
   if (!repoUrl) {
     throw new Error('Event should contain repository data!');
   }
