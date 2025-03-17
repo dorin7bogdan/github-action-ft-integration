@@ -71,7 +71,7 @@ async function saveSyncedCommit(data: string): Promise<void> {
     if (isBlank(data)) 
       return;
     try {
-        await fs.writeFile(STORAGE_FILE, data, UTF8);
+        await fs.writeFile(STORAGE_FILE, data.trim(), UTF8);
         console.log(`Saved string to ${STORAGE_FILE}`);
     } catch (error) {
         throw new Error(`Failed to save string: ${(error as Error).message}`);
@@ -86,7 +86,7 @@ async function getSyncedCommit(): Promise<string | undefined> {
     try {
         const data = await fs.readFile(STORAGE_FILE, UTF8);
         console.log(`Loaded string from ${STORAGE_FILE}`);
-        return data;
+        return data.trim();
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
             // File doesn't exist yet, return undefined
