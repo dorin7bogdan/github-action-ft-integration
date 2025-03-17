@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as Diff from 'diff';
 import { Logger } from '../utils/logger';
+import { ToolType } from '../dto/ft/ToolType';
 
 const _logger: Logger = new Logger('ScmChangesWrapper');
 const HEAD = 'HEAD'; // Compare to latest commit
@@ -24,16 +25,16 @@ interface DiffEntry {
 }
 
 export default class ScmChangesWrapper {
-  public static async getScmChanges(dir: string, oldCommit: string): Promise<ScmAffectedFileWrapper[]> {
-    return wrapScmChanges(dir, oldCommit);
+  public static async getScmChanges(toolType: ToolType, dir: string, oldCommit: string): Promise<ScmAffectedFileWrapper[]> {
+    return wrapScmChanges(toolType, dir, oldCommit);
   }
 }
-async function wrapScmChanges(dir: string, oldCommit: string): Promise<ScmAffectedFileWrapper[]> {
+async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string): Promise<ScmAffectedFileWrapper[]> {
   const affectedFiles: ScmAffectedFileWrapper[] = [];
   
   try {
     // Get diff between old and new commits
-    const diffs = await getDiffEntries(dir, oldCommit); // Compare to latest commit
+    const diffs = await getDiffEntries(toolType, dir, oldCommit); // Compare to latest commit
 
     // Rename detection settings
     const renameThreshold = 0.5; // 50% similarity for rename detection
@@ -94,9 +95,12 @@ async function wrapScmChanges(dir: string, oldCommit: string): Promise<ScmAffect
 }
 
 // Get diff entries between two commits
-async function getDiffEntries(dir: string, oldCommit: string): Promise<DiffEntry[]> {
+async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string): Promise<DiffEntry[]> {
   const gitdir = path.join(dir, '.git');
   _logger.debug('Starting getDiffEntries with:', { dir, gitdir, oldCommit, HEAD });
+
+  const allowedExtensions = toolType === ToolType.UFT ? /\.(xls|xlsx|tsp|st)$/i : /\.(tsp|st)$/i;
+  const allowedFilenames = toolType === ToolType.UFT ? /^(ACTIONS\.XML)$/i : /^(ACTIONS\.XML|Resource\.MTR)$/i;
 
   const results = await git.walk({
     fs,
@@ -117,7 +121,6 @@ async function getDiffEntries(dir: string, oldCommit: string): Promise<DiffEntry
         return null;
       }
       if (from === 'dev/null' && to === 'dev/null') {
-        //_logger.debug(`Skipping non-existent: ${filepath}`);
         return null;
       }
 
@@ -126,22 +129,42 @@ async function getDiffEntries(dir: string, oldCommit: string): Promise<DiffEntry
     reduce: async function (parent, children) {
       let result: DiffEntry[] = [];
 
-      // Include parent if it’s a DiffEntry and not the root "."
-      if (parent && 'from' in parent && parent.from !== '.' && parent.to !== '.') {
-        result.push(parent);
+      // Helper function to check if a diff entry matches our filter
+      const matchesFilter = (entry: DiffEntry): boolean => {
+        // Use from path for deleted files, to path otherwise
+        const relevantPath = (entry.from !== 'dev/null' && entry.to === 'dev/null') 
+          ? entry.from 
+          : entry.to;
+        
+        // Skip root directory check (we want to process all directories)
+        if (relevantPath === '.') {
+          return true;
+        }
+
+        const filename = path.basename(relevantPath);
+        return allowedExtensions.test(filename) || allowedFilenames.test(filename);
+      };
+
+      // Process parent
+      if (parent && 'from' in parent) {
+        if (matchesFilter(parent)) {
+          result.push(parent);
+        }
       }
 
-      // Process children, excluding the root "."
+      // Process children
       for (const child of children) {
         if (child && 'from' in child) {
-          if (child.from !== '.' && child.to !== '.') {
-            result.push(child); // Include non-root DiffEntry
+          if (matchesFilter(child)) {
+            result.push(child);
           }
         } else if (Array.isArray(child)) {
-          // Flatten nested arrays, excluding root entries
+          // Flatten nested arrays and filter
           result = result.concat(
             child.filter((item): item is DiffEntry => 
-              item !== null && 'from' in item && item.from !== '.' && item.to !== '.'
+              item !== null && 
+              'from' in item && 
+              matchesFilter(item)
             )
           );
         }
@@ -150,8 +173,6 @@ async function getDiffEntries(dir: string, oldCommit: string): Promise<DiffEntry
       return result;
     }
   }) ?? [];
-
-  //_logger.debug('Final results:', results);
 
   if (results.length === 0) {
     console.warn('No differences found.');

@@ -163,7 +163,7 @@ export default class Discovery {
       const syncedCommit = await getSyncedCommit();
       if (syncedCommit && syncedCommit.trim() !== '') {
         _logger.info(`Synced commit: ${syncedCommit}`);
-        const affectedFiles = await ScmChangesWrapper.getScmChanges(this._workDir, syncedCommit);
+        const affectedFiles = await ScmChangesWrapper.getScmChanges(this._toolType, this._workDir, syncedCommit);
         await this.doSyncDiscovery(affectedFiles);
       } else {
         await this.doFullDiscovery();
@@ -289,7 +289,7 @@ export default class Discovery {
         const stats = await fs.promises.stat(fullPath);
         if (stats.isDirectory()) {
           await this.scanDirRecursively(fullPath);
-        } else if (this.isDataTableFile(item)) {
+        } else if (this.isDataTableFile(item)) { // TODO check if this condition is really correct for datatable
           const scmResxFile = this.createScmResxFile(fullPath);
           this._scmResxFiles.push(scmResxFile);
         }
@@ -297,6 +297,15 @@ export default class Discovery {
     } else if (!(this._toolType === ToolType.MBT && testType === UftoTestType.API)) {
       const automTest = await this.createAutomatedTestEx(subDirFullPath, testType);
       this._tests.push(automTest);
+      //TODO check if this is the expected logic
+      for (const item of items) {
+        const fullPath = path.join(subDirFullPath, item);
+        const stats = await fs.promises.stat(fullPath);
+        if (!stats.isDirectory() && this.isDataTableFile(item)) {
+          const scmResxFile = this.createScmResxFile(fullPath);
+          this._scmResxFiles.push(scmResxFile);
+        }
+      }
     }
   }
 

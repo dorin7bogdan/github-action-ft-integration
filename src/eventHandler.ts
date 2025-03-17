@@ -51,6 +51,7 @@ import { OctaneStatus } from './dto/ft/OctaneStatus';
 
 const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
+const MBT = 'mbt';
 const TESTING_TOOL_TYPE = 'testingToolType';
 
 export const handleCurrentEvent = async (): Promise<void> => {
@@ -88,13 +89,11 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
 
   _logger.info(`Working directory: ${workDir}`);
-  let toolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
-  if (toolType.trim() === "") {
-    toolType = UFT;
-  }
+  let testingToolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
+  const toolType = (testingToolType.trim().toLowerCase() === MBT) ? ToolType.MBT : ToolType.UFT;
   const commitSha = await getLastCommitSha();
   _logger.debug(`Current commit SHA: ${commitSha}`);
-  const discovery = new Discovery(ToolType.fromType(toolType), workDir);
+  const discovery = new Discovery(toolType, workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
     case ActionsEventType.PUSH:
