@@ -4,12 +4,12 @@ export enum UftoParamDirection {
 }
 
 export namespace UftoParamDirection {
-  const valueMap: { [key: number]: UftoParamDirection } = {
-    [UftoParamDirection.IN]: UftoParamDirection.IN,
-    [UftoParamDirection.OUT]: UftoParamDirection.OUT
+  const valueMap: { [key: number]: string } = {
+    [UftoParamDirection.IN]: "IN",
+    [UftoParamDirection.OUT]: "OUT"
   };
 
-  export function get(num: number): UftoParamDirection | null {
+  export function getName(num: number): string | null {
     return valueMap[num] ?? null;
   }
 }

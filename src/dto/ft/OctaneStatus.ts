@@ -6,14 +6,14 @@ export enum OctaneStatus {
 }
 
 export namespace OctaneStatus {
-  const valueMap: { [key: number]: OctaneStatus } = {
-    [OctaneStatus.NEW]: OctaneStatus.NEW,
-    [OctaneStatus.MODIFIED]: OctaneStatus.MODIFIED,
-    [OctaneStatus.DELETED]: OctaneStatus.DELETED,
-    [OctaneStatus.NONE]: OctaneStatus.NONE
+  const valueMap: { [key: number]: string } = {
+    [OctaneStatus.NEW]: "NEW",
+    [OctaneStatus.MODIFIED]: "MODIFIED",
+    [OctaneStatus.DELETED]: "DELETED",
+    [OctaneStatus.NONE]: "NONE"
   };
 
-  export function get(num: number): OctaneStatus | null {
+  export function getName(num: number): string | null {
     return valueMap[num] ?? null;
   }
 }

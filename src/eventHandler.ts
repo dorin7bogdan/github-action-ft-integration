@@ -108,7 +108,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
           console.log(`Test: ${t.name}, type = ${t.uftOneTestType}`);
           console.log(` packageName: ${t.packageName}`);
           console.log(` executable: ${t.executable}`);
-          console.log(` octaneStatus: ${OctaneStatus.get(t.octaneStatus)}`);
+          console.log(` octaneStatus: ${OctaneStatus.getName(t.octaneStatus)}`);
           console.log(` changeSetSrc: ${t.changeSetSrc}`);
           console.log(` changeSetDst: ${t.changeSetDst}`);
           if (t.actions && t.actions.length > 0) {
@@ -118,7 +118,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
               if (a.parameters && a.parameters.length > 0) {
                 console.log(`   Parameters:`);
                 for (const p of a.parameters) {
-                  console.log(`    ${p.name} - ${UftoParamDirection.get(p.direction)}`);
+                  console.log(`    ${p.name} - ${UftoParamDirection.getName(p.direction)}`);
                 }
               }
             }
