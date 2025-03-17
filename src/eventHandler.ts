@@ -99,7 +99,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
     toolType = UFT;
   }
   const commitSha = await getLastCommitSha();
-  _logger.debug(`Current/last commit SHA: ${commitSha}`);
+  _logger.debug(`Current commit SHA: ${commitSha}`);
   const discovery = new Discovery(ToolType.fromType(toolType), workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:

@@ -49,6 +49,7 @@ async function run () {
     } else {
       msg = error.message;
     }
+    _logger.error(msg);
     setFailed(msg);
   } finally {
     _logger.info('END run ...');

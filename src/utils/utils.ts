@@ -43,25 +43,23 @@ const UTF8 = 'utf8';
 async function getLastCommitSha(): Promise<string> {
   let sha = context.sha;
   if (!sha) {
-      let output = '';
-      const options = {
-          listeners: {
-              stdout: (data: Buffer) => {
-                  output += data.toString();
-              }
-          },
-          silent: true // Suppress default logging, use core.info instead
-      };
+    let output = '';
+    const options = {
+        listeners: {
+            stdout: (data: Buffer) => {
+                output += data.toString();
+            },
+            stderr: (data: Buffer) => {
+                console.error(data.toString());
+            }
+        },
+        silent: true // Suppress default logging, use core.info instead
+    };
 
-      // Execute git rev-parse HEAD^ to get the parent commit SHA
-      await exec('git', ['rev-parse', 'HEAD^'], options);
-      sha = output.trim();
-
-      if (!sha) {
-          throw new Error('Failed to retrieve last commit SHA');
-      }
+    // Execute git rev-parse HEAD^ to get the HEAD commit SHA
+    await exec('git', ['rev-parse', 'HEAD'], options);
+    sha = output.trim();
   }
-
   return sha;
 }
 

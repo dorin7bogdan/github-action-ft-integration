@@ -231,8 +231,9 @@ export default class Discovery {
     const testDirFullPath = getParentFolderFullPath(affFileFullPath);
     const fileExists = fs.existsSync(affFileFullPath);
     const testType = getTestType(affFileWrapper.newPath);
-    const test = await this.createAutomatedTest(testDirFullPath, testType, affFileWrapper.oldId, affFileWrapper.newId);
-
+    const test = fileExists ?
+        await this.createAutomatedTestEx(testDirFullPath, testType, affFileWrapper.oldId, affFileWrapper.newId) :
+        await this.createAutomatedTest(testDirFullPath, testType, affFileWrapper.oldId, affFileWrapper.newId);
     if (affFileWrapper.changeType === ADD) {
       fileExists && this._tests.push(test);
     } else if (affFileWrapper.changeType === DELETE) {
@@ -294,7 +295,7 @@ export default class Discovery {
         }
       }
     } else if (!(this._toolType === ToolType.MBT && testType === UftoTestType.API)) {
-      const automTest = await this.createAutomatedTest(subDirFullPath, testType);
+      const automTest = await this.createAutomatedTestEx(subDirFullPath, testType);
       this._tests.push(automTest);
     }
   }
@@ -318,7 +319,11 @@ export default class Discovery {
       changeSetSrc: oldId,
       changeSetDst: newId
     };
+    return test;
+  }
 
+  private async createAutomatedTestEx(subDirFullPath: string, testType: UftoTestType, oldId?: string, newId?: string): Promise<AutomatedTest> {
+    const test = await this.createAutomatedTest(subDirFullPath, testType, oldId, newId);
     const doc = await this.getDocument(subDirFullPath, testType);
     let descr = this.getTestDescription(doc, testType);
     descr = this.convertToHtmlFormatIfRequired(descr);
@@ -327,7 +332,7 @@ export default class Discovery {
     // discover actions only for mbt toolType and gui tests
     if (this._toolType == ToolType.MBT && testType === UftoTestType.GUI) {
       const actionPathPrefix = this.getActionPathPrefix(test, false);
-      const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, testName, subDirFullPath);
+      const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, test.name, subDirFullPath);
       test.actions = actions;    
     }
 
