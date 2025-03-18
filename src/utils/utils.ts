@@ -41,19 +41,19 @@ const _ST = '.st';
 const UTF8 = 'utf8';
 
 async function getHeadCommitSha(dir: string): Promise<string> {
-  return context.sha ?? await git.resolveRef({ fs, dir, ref: "HEAD" });
+  return context.sha ?? git.resolveRef({ fs, dir, ref: 'HEAD' });
 }
 
 /**
  * Stores a string in the working directory
- * @param data The string to store
+ * @param newCommit The string to store
  */
-async function saveSyncedCommit(data: string): Promise<void> {
-    if (isBlank(data)) 
+async function saveSyncedCommit(newCommit: string): Promise<void> {
+    if (isBlank(newCommit)) 
       return;
     try {
-        await fs.writeFile(STORAGE_FILE, data.trim(), UTF8);
-        console.log(`Saved string to ${STORAGE_FILE}`);
+        await fs.writeFile(STORAGE_FILE, newCommit.trim(), UTF8);
+        console.log(`Newly synced commit ${newCommit} saved to ${STORAGE_FILE}`);
     } catch (error) {
         throw new Error(`Failed to save string: ${(error as Error).message}`);
     }

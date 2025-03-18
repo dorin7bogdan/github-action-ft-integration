@@ -25,15 +25,14 @@ interface DiffEntry {
 }
 
 export default class ScmChangesWrapper {
-  public static async getScmChanges(toolType: ToolType, dir: string, oldCommit: string): Promise<ScmAffectedFileWrapper[]> {
-    return wrapScmChanges(toolType, dir, oldCommit);
+  public static async getScmChanges(toolType: ToolType, dir: string, oldCommit: string, newCommit: string): Promise<ScmAffectedFileWrapper[]> {
+    return wrapScmChanges(toolType, dir, oldCommit, newCommit);
   }
 }
-async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string): Promise<ScmAffectedFileWrapper[]> {
+async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string, newCommit: string): Promise<ScmAffectedFileWrapper[]> {
   const affectedFiles: ScmAffectedFileWrapper[] = [];
   
   try {
-    const newCommit = await git.resolveRef({ fs, dir, ref: HEAD });
     // Get diff between old and new commits
     const diffs = await getDiffEntries(toolType, dir, oldCommit, newCommit); // Compare to latest commit
 
@@ -85,7 +84,7 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
         oldPath: rename.oldPath,
         changeType: 'EDIT', // RENAME treated as EDIT with old/new paths
         oldId: (await git.resolveRef({ fs, dir, ref: oldCommit })) || '',
-        newId: (await git.resolveRef({ fs, dir, ref: HEAD })) || '',
+        newId: (await git.resolveRef({ fs, dir, ref: newCommit })) || '',
       });
     }
 
@@ -201,7 +200,9 @@ async function calculateSimilarity(dir: string, oldCommit: string, newCommit: st
     // Calculate similarity as the ratio of unchanged lines to total lines
     return totalLines > 0 ? unchangedLines / totalLines : 0;
   } catch (error) {
-    core.warning(`Failed to compute similarity for ${oldPath} -> ${newPath}: ${error}`);
+    const err = `Failed to compute similarity for ${oldPath} -> ${newPath}: ${error}`
+    _logger.error(err);
+    core.error(err);
     return 0; // Default to no similarity if content can't be read
   }
 }

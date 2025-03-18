@@ -33,7 +33,7 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
-import { saveSyncedCommit, getHeadCommitSha } from './utils/utils';
+import { saveSyncedCommit } from './utils/utils';
 import { context } from '@actions/github';
 import {
   buildExecutorCiId,
@@ -91,13 +91,11 @@ export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info(`Working directory: ${workDir}`);
   let testingToolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
   const toolType = (testingToolType.trim().toLowerCase() === MBT) ? ToolType.MBT : ToolType.UFT;
-  const commitSha = await getHeadCommitSha(workDir);
-  _logger.debug(`Current commit SHA: ${commitSha}`);
   const discovery = new Discovery(toolType, workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
     case ActionsEventType.PUSH:
-      await discovery.startScanning(repoUrl);
+      const newCommitSha = await discovery.startScanning(repoUrl);
       const tests = discovery.getTests();
       const scmResxFiles = discovery.getScmResxFiles();
 
@@ -137,7 +135,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
       }
 
       // TODO sync the tests with Octane
-      await saveSyncedCommit(commitSha);
+      await saveSyncedCommit(newCommitSha);
 
       break;
     case ActionsEventType.WORKFLOW_FINISHED:

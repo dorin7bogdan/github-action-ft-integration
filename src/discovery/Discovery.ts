@@ -14,7 +14,7 @@ import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
 import ScmChangesWrapper, { ScmAffectedFileWrapper } from './ScmChangesWrapper';
-import { getParentFolderFullPath, getSyncedCommit, getTestType, isBlank, isTestMainFile } from '../utils/utils';
+import { getHeadCommitSha, getParentFolderFullPath, getSyncedCommit, getTestType, isBlank, isTestMainFile } from '../utils/utils';
 
 const _logger: Logger = new Logger('Discovery');
 const GUI_TEST_FILE = 'Test.tsp';
@@ -151,25 +151,27 @@ export default class Discovery {
     this._scmResxFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   }  
 
-  public async startScanning(repoUrl: string | undefined): Promise<void> {
+  public async startScanning(repoUrl: string | undefined): Promise<string> {
     _logger.info('BEGIN startScanning ...');
     if (!repoUrl || repoUrl?.trim() === '') {
       throw new Error('Repository URL is required!');
     }
     const didFullCheckout = await this.checkoutRepo();
+    const newCommit = await getHeadCommitSha(this._workDir);
     if (didFullCheckout) {
       await this.doFullDiscovery();
     } else {
-      const syncedCommit = await getSyncedCommit();
-      if (syncedCommit && syncedCommit.trim() !== '') {
-        _logger.info(`Synced commit: ${syncedCommit}`);
-        const affectedFiles = await ScmChangesWrapper.getScmChanges(this._toolType, this._workDir, syncedCommit);
+      const oldCommit = await getSyncedCommit();
+      if (oldCommit && oldCommit.trim() !== '') {
+        _logger.info(`Last synced commit: ${oldCommit}`);
+        const affectedFiles = await ScmChangesWrapper.getScmChanges(this._toolType, this._workDir, oldCommit, newCommit);
         await this.doSyncDiscovery(affectedFiles);
       } else {
         await this.doFullDiscovery();
       }
     }
     _logger.info('END startScanning ...');
+    return newCommit;
   }
 
   private async doFullDiscovery() {
