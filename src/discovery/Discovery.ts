@@ -194,19 +194,19 @@ export default class Discovery {
       if (isTestMainFile(affectedFileFullPath)) {
         await this.handleTestChanges(affectedFileWrapper, affectedFileFullPath);
       } else if (this._toolType === ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
-        await this.handleUftDataTableChanges(affectedFileWrapper, affectedFileFullPath);
+        await this.handleDataTableChanges(affectedFileWrapper, affectedFileFullPath);
       } else if (this._toolType === ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
-        await this.handleUftActionChanges(affectedFileWrapper, affectedFileFullPath);
+        await this.handleActionChanges(affectedFileWrapper, affectedFileFullPath);
       }
     }
   }
-  private async handleUftActionChanges(affectedFileWrapper: ScmAffectedFileWrapper, affectedFileFullPath: string) {
+  private async handleActionChanges(affectedFileWrapper: ScmAffectedFileWrapper, affectedFileFullPath: string) {
     // TODO: not implemented yet in java
   }
   private isUftoActionFile(filePath: string) {
     return path.basename(filePath).toLowerCase() === RESOURCE_MTR;
   }
-  private async handleUftDataTableChanges(affFileWrapper: ScmAffectedFileWrapper, affFileFullPath: string) {
+  private async handleDataTableChanges(affFileWrapper: ScmAffectedFileWrapper, affFileFullPath: string) {
     const resxFile = this.createScmResxFile(affFileFullPath, affFileWrapper.oldId, affFileWrapper.newId);
     const fileExists = fs.existsSync(affFileFullPath);
 
@@ -214,10 +214,8 @@ export default class Discovery {
       const testDirFullPath = getParentFolderFullPath(affFileFullPath);
       const items = await fs.promises.readdir(testDirFullPath) ?? [];
       const testType = await this.getTestType(items);
-      if (testType.isNone()) { // TODO check if this condition is really correct for datatable
-        if (fileExists) {
-          this._scmResxFiles.push(resxFile);
-        }
+      if (testType.isNone()) {
+        fileExists && this._scmResxFiles.push(resxFile);
       }
     } else if (affFileWrapper.changeType === DELETE) {
       if (!fileExists) {
@@ -260,8 +258,7 @@ export default class Discovery {
         // make sure path in windows style
         let oldPackageName = "";
         if(parts.length > 2) { // only in case the test is not under the root folder
-          //TODO ask Itay if we must replace / with \/ or with \
-          oldPackageName = oldPath!.substring(0, oldPath!.indexOf(oldTestName) - 1).replace(/\//g, "\\/");
+          oldPackageName = oldPath!.substring(0, oldPath!.indexOf(oldTestName) - 1).replace(/\//g, "\\");
         }
         test.oldPackageName = oldPackageName;
     }
@@ -288,7 +285,7 @@ export default class Discovery {
         const stats = await fs.promises.stat(fullPath);
         if (stats.isDirectory()) {
           await this.scanDirRecursively(fullPath);
-        } else if (this.isDataTableFile(item)) { // TODO check if this condition is really correct for datatable
+        } else if (this.isDataTableFile(item)) {
           const scmResxFile = this.createScmResxFile(fullPath);
           this._scmResxFiles.push(scmResxFile);
         }
@@ -296,15 +293,6 @@ export default class Discovery {
     } else if (!(this._toolType === ToolType.MBT && testType === UftoTestType.API)) {
       const automTest = await this.createAutomatedTestEx(subDirFullPath, testType);
       this._tests.push(automTest);
-      //TODO check if this is the expected logic
-      for (const item of items) {
-        const fullPath = path.join(subDirFullPath, item);
-        const stats = await fs.promises.stat(fullPath);
-        if (!stats.isDirectory() && this.isDataTableFile(item)) {
-          const scmResxFile = this.createScmResxFile(fullPath);
-          this._scmResxFiles.push(scmResxFile);
-        }
-      }
     }
   }
 
