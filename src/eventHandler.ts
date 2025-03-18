@@ -123,7 +123,18 @@ export const handleCurrentEvent = async (): Promise<void> => {
             }
           }
         }
-        console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles); // TODO use for loop to print each item
+        console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
+        for (const f of scmResxFiles) {
+          console.log(`name: ${f.name}`);
+          console.log(`oldName: ${f.oldName}`);
+          console.log(`relativePath: ${f.relativePath}`);
+          console.log(`oldPath: ${f.oldRelativePath}`);
+          console.log(`changeType: ${OctaneStatus.getName(f.octaneStatus)}`);
+          console.log(`isMoved: ${f.isMoved}`);
+          console.log(`changeSetSrc: ${f.changeSetSrc}`);
+          console.log(`changeSetDst: ${f.changeSetDst}`);
+        }
+
       }
 
       // TODO sync the tests with Octane
