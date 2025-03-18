@@ -33,8 +33,9 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
   const affectedFiles: ScmAffectedFileWrapper[] = [];
   
   try {
+    const newCommit = await git.resolveRef({ fs, dir, ref: HEAD });
     // Get diff between old and new commits
-    const diffs = await getDiffEntries(toolType, dir, oldCommit); // Compare to latest commit
+    const diffs = await getDiffEntries(toolType, dir, oldCommit, newCommit); // Compare to latest commit
 
     // Rename detection settings
     const renameThreshold = 0.5; // 50% similarity for rename detection
@@ -62,7 +63,7 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
         });
       } else {
         // Potential MODIFY or RENAME
-        const similarity = await calculateSimilarity(dir, oldCommit, diff.from, diff.to);
+        const similarity = await calculateSimilarity(dir, oldCommit, newCommit, diff.from, diff.to);
         if (similarity >= renameThreshold) {
           potentialRenames.push({ oldPath: diff.from, newPath: diff.to, similarity });
         } else {
@@ -95,9 +96,9 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
 }
 
 // Get diff entries between two commits
-async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string): Promise<DiffEntry[]> {
+async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string, newCommit: string): Promise<DiffEntry[]> {
   const gitdir = path.join(dir, '.git');
-  _logger.debug('Starting getDiffEntries with:', { dir, gitdir, oldCommit, HEAD });
+  _logger.debug('Starting getDiffEntries with:', { dir, gitdir, oldCommit, newCommit });
 
   const allowedExtensions = toolType === ToolType.UFT ? /\.(xls|xlsx|tsp|st)$/i : /\.(tsp|st)$/i;
   const allowedFilenames = toolType === ToolType.UFT ? /^(ACTIONS\.XML)$/i : /^(ACTIONS\.XML|Resource\.MTR)$/i;
@@ -175,10 +176,10 @@ async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string
 }
 
 // Calculate similarity using the diff library
-async function calculateSimilarity(dir: string, oldCommit: string, oldPath: string, newPath: string ): Promise<number> {
+async function calculateSimilarity(dir: string, oldCommit: string, newCommit: string, oldPath: string, newPath: string ): Promise<number> {
   try {
     const oldContent = await git.readBlob({ fs, dir, gitdir: path.join(dir, '.git'), oid: oldCommit, filepath: oldPath });
-    const newContent = await git.readBlob({ fs, dir, gitdir: path.join(dir, '.git'), oid: HEAD, filepath: newPath });
+    const newContent = await git.readBlob({ fs, dir, gitdir: path.join(dir, '.git'), oid: newCommit, filepath: newPath });
 
     // Convert Uint8Array to UTF-8 string using Buffer
     const oldStr = Buffer.from(oldContent.blob).toString('utf8');

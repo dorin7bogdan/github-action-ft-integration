@@ -152,7 +152,7 @@ export default class Discovery {
   }  
 
   public async startScanning(repoUrl: string | undefined): Promise<void> {
-    _logger.info('BEGIN startFullScanning ...');
+    _logger.info('BEGIN startScanning ...');
     if (!repoUrl || repoUrl?.trim() === '') {
       throw new Error('Repository URL is required!');
     }
@@ -169,7 +169,7 @@ export default class Discovery {
         await this.doFullDiscovery();
       }
     }
-    _logger.info('END startFullScanning ...');
+    _logger.info('END startScanning ...');
   }
 
   private async doFullDiscovery() {

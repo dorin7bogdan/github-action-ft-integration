@@ -33,7 +33,7 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
-import { saveSyncedCommit, getSyncedCommit, getLastCommitSha } from './utils/utils';
+import { saveSyncedCommit, getHeadCommitSha } from './utils/utils';
 import { context } from '@actions/github';
 import {
   buildExecutorCiId,
@@ -91,7 +91,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info(`Working directory: ${workDir}`);
   let testingToolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
   const toolType = (testingToolType.trim().toLowerCase() === MBT) ? ToolType.MBT : ToolType.UFT;
-  const commitSha = await getLastCommitSha();
+  const commitSha = await getHeadCommitSha(workDir);
   _logger.debug(`Current commit SHA: ${commitSha}`);
   const discovery = new Discovery(toolType, workDir);
   switch (eventType) {
@@ -126,15 +126,14 @@ export const handleCurrentEvent = async (): Promise<void> => {
         console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
         for (const f of scmResxFiles) {
           console.log(`name: ${f.name}`);
-          console.log(`oldName: ${f.oldName}`);
+          console.log(`oldName: ${f.oldName ?? ""}`);
           console.log(`relativePath: ${f.relativePath}`);
-          console.log(`oldPath: ${f.oldRelativePath}`);
+          console.log(`oldPath: ${f.oldRelativePath ?? ""}`);
           console.log(`changeType: ${OctaneStatus.getName(f.octaneStatus)}`);
-          console.log(`isMoved: ${f.isMoved}`);
-          console.log(`changeSetSrc: ${f.changeSetSrc}`);
-          console.log(`changeSetDst: ${f.changeSetDst}`);
+          console.log(`isMoved: ${f.isMoved ?? false}`);
+          console.log(`changeSetSrc: ${f.changeSetSrc ?? ""}`);
+          console.log(`changeSetDst: ${f.changeSetDst ?? ""}`);
         }
-
       }
 
       // TODO sync the tests with Octane

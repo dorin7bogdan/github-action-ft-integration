@@ -31,7 +31,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { UftoTestType } from '../dto/ft/UftoTestType';
 import { context } from '@actions/github';
-import { exec } from '@actions/exec';
+import * as git from 'isomorphic-git';
 
 // File to store the string (hidden file to avoid cluttering the repo)
 const STORAGE_FILE = path.join(process.cwd(), '.synced-commit-sha.txt');
@@ -40,27 +40,8 @@ const _TSP = '.tsp';
 const _ST = '.st';
 const UTF8 = 'utf8';
 
-async function getLastCommitSha(): Promise<string> {
-  let sha = context.sha;
-  if (!sha) {
-    let output = '';
-    const options = {
-        listeners: {
-            stdout: (data: Buffer) => {
-                output += data.toString();
-            },
-            stderr: (data: Buffer) => {
-                console.error(data.toString());
-            }
-        },
-        silent: true // Suppress default logging, use core.info instead
-    };
-
-    // Execute git rev-parse HEAD^ to get the HEAD commit SHA
-    await exec('git', ['rev-parse', 'HEAD'], options);
-    sha = output.trim();
-  }
-  return sha;
+async function getHeadCommitSha(dir: string): Promise<string> {
+  return context.sha ?? await git.resolveRef({ fs, dir, ref: "HEAD" });
 }
 
 /**
@@ -159,4 +140,4 @@ const sleep = async (milis: number): Promise<void> => {
   });
 };
 
-export { getLastCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
+export { getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
