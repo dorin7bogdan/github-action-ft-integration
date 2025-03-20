@@ -109,13 +109,13 @@ export const handleCurrentEvent = async (): Promise<void> => {
           t.changeSetSrc && console.log(`  changeSetSrc: ${t.changeSetSrc}`);
           t.changeSetDst && console.log(`  changeSetDst: ${t.changeSetDst}`);
           if (t.actions && t.actions.length > 0) {
-            console.log(` Actions:`);
+            console.log(`  Actions:`);
             for (const a of t.actions) {
-              console.log(`   ${a.name}`);
+              console.log(`    ${a.name}`);
               if (a.parameters && a.parameters.length > 0) {
-                console.log(`   Parameters:`);
+                console.log(`      Parameters:`);
                 for (const p of a.parameters) {
-                  console.log(`    ${p.name} - ${UftoParamDirection.getName(p.direction)}`);
+                  console.log(`        ${p.name} - ${UftoParamDirection.getName(p.direction)}`);
                 }
               }
             }
