@@ -60,11 +60,11 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const event: ActionsEvent = context.payload;
   const eventName = context.eventName;
 
-  if (event) {
+/*   if (event) {
     _logger.debug(`event = ${JSON.stringify(event)}`);
   } else {
     _logger.debug('event is null or undefined');
-  }
+  } */
 
   const eventType = getEventType(event?.action || eventName);
   if (eventType === ActionsEventType.UNKNOWN_EVENT) {
