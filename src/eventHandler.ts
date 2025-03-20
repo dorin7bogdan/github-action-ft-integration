@@ -102,16 +102,16 @@ export const handleCurrentEvent = async (): Promise<void> => {
       if (_logger.isDebugEnabled()) {
         console.log(`Tests: ${tests.length}`);
         for (const t of tests) {
-          console.log(`Test: ${t.name}, type = ${t.uftOneTestType}`);
-          console.log(` packageName: ${t.packageName}`);
-          console.log(` executable: ${t.executable}`);
-          console.log(` octaneStatus: ${OctaneStatus.getName(t.octaneStatus)}`);
-          console.log(` changeSetSrc: ${t.changeSetSrc}`);
-          console.log(` changeSetDst: ${t.changeSetDst}`);
+          console.log(`${t.name}, type = ${t.uftOneTestType}`);
+          console.log(`  packageName: ${t.packageName}`);
+          console.log(`  executable: ${t.executable}`);
+          console.log(`  octaneStatus: ${OctaneStatus.getName(t.octaneStatus)}`);
+          t.changeSetSrc && console.log(`  changeSetSrc: ${t.changeSetSrc}`);
+          t.changeSetDst && console.log(`  changeSetDst: ${t.changeSetDst}`);
           if (t.actions && t.actions.length > 0) {
             console.log(` Actions:`);
             for (const a of t.actions) {
-              console.log(`  ${a.name}`);
+              console.log(`   ${a.name}`);
               if (a.parameters && a.parameters.length > 0) {
                 console.log(`   Parameters:`);
                 for (const p of a.parameters) {
@@ -123,14 +123,14 @@ export const handleCurrentEvent = async (): Promise<void> => {
         }
         console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
         for (const f of scmResxFiles) {
-          console.log(`name: ${f.name}`);
-          console.log(`oldName: ${f.oldName ?? ""}`);
-          console.log(`relativePath: ${f.relativePath}`);
-          console.log(`oldPath: ${f.oldRelativePath ?? ""}`);
-          console.log(`changeType: ${OctaneStatus.getName(f.octaneStatus)}`);
-          console.log(`isMoved: ${f.isMoved ?? false}`);
-          console.log(`changeSetSrc: ${f.changeSetSrc ?? ""}`);
-          console.log(`changeSetDst: ${f.changeSetDst ?? ""}`);
+          console.log(`Resource file: ${f.name}`);
+          console.log(`  oldName: ${f.oldName ?? ""}`);
+          console.log(`  relativePath: ${f.relativePath}`);
+          f.oldRelativePath ?? console.log(`  oldPath: ${f.oldRelativePath}`);
+          console.log(`  changeType: ${OctaneStatus.getName(f.octaneStatus)}`);
+          console.log(`  isMoved: ${f.isMoved ?? false}`);
+          f.changeSetSrc && console.log(`  changeSetSrc: ${f.changeSetSrc}`);
+          f.changeSetDst && console.log(`  changeSetDst: ${f.changeSetDst}`);
         }
       }
 
