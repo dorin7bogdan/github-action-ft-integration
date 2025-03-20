@@ -121,7 +121,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
             }
           }
         }
-        console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
+        scmResxFiles?.length && console.log(`Resource files: ${scmResxFiles.length}`, scmResxFiles);
         for (const f of scmResxFiles) {
           console.log(`Resource file: ${f.name}`);
           console.log(`  oldName: ${f.oldName ?? ""}`);
