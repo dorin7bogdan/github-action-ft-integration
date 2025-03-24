@@ -9,7 +9,7 @@ import { ToolType } from '../dto/ft/ToolType';
 import AutomatedTest from '../dto/ft/AutomatedTest';
 import ScmResourceFile from '../dto/ft/ScmResourceFile';
 import { OctaneStatus } from '../dto/ft/OctaneStatus';
-import { DOMParser } from 'xmldom';
+import { DOMParser, Document, Element } from '@xmldom/xmldom';
 import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
@@ -430,7 +430,8 @@ export default class Discovery {
     const params: UftoTestParam[] = [];
     const xmlContent = await this.extractXmlFromTspOrMtrFile(resourceMtrFile);
     const parser = this.getSecureDocumentParser();
-    const doc = parser.parseFromString(xmlContent, TEXT_XML) as Document;
+    const cleanXmlContent = xmlContent.replace(/^\uFEFF/, ''); // Remove BOM if present
+    const doc = parser.parseFromString(cleanXmlContent, TEXT_XML) as Document;
     const argumentsCollectionElement = doc.getElementsByTagName(UFT_PARAM_ARGS_COLL_NODE_NAME);
     if (argumentsCollectionElement.length > 0) {
         const argumentsCollectionItem = argumentsCollectionElement.item(0);
@@ -599,14 +600,15 @@ export default class Discovery {
 
   private getSecureDocumentParser(): DOMParser {
     const parser = new DOMParser({
-      locator: {}, // Enable error location tracking
-      errorHandler: {
-        warning: (msg) => _logger.warn(`XML Parse Warning: ${msg}`),
-        error: (msg) => _logger.error(`XML Parse Error: ${msg}`),
-        fatalError: (msg) => { throw new TspParseError(`Fatal XML Parse Error: ${msg}`); }
+      errorHandler: (level: string, msg: string) => {
+        if (level === 'error') {
+          _logger.error(`XML Parse Error: ${msg}`);
+        } else if (level === 'fatalError') {
+          throw new TspParseError(`Fatal XML Parse Error: ${msg}`);
+        }
+        return null;
       }
     });
-
     return parser;
   }
 
@@ -626,8 +628,8 @@ export default class Discovery {
       const parser = this.getSecureDocumentParser();
       const doc = parser.parseFromString(xmlContent, TEXT_XML) as Document;
 
-      if (doc.documentElement.nodeName === "parsererror") {
-        throw new TspParseError("Invalid XML content");
+      if (!doc.documentElement) {
+        throw new TspParseError("Invalid XML content: No document element found.");
       }
 
       return doc;
@@ -646,13 +648,14 @@ export default class Discovery {
 
       const xmlContent = await fs.promises.readFile(actionsFile, 'utf8');
       const parser = this.getSecureDocumentParser();
-      const doc = parser.parseFromString(xmlContent, TEXT_XML) as Document;
-      if (doc.documentElement.nodeName === "parsererror") {
-        throw new Error("Invalid XML content");
+      const cleanXmlContent = xmlContent.replace(/^\uFEFF/, ''); // Remove BOM if present
+      const doc = parser.parseFromString(cleanXmlContent, TEXT_XML) as Document;
+      if (!doc.documentElement) {
+        throw new TspParseError("Invalid XML content: No document element found.");
       }
       return doc;
     } catch(error: any) {
-      _logger.error("Error parsing document:" + error?.message);
+      _logger.error("Error parsing document: " + error?.message);
       throw error;
     }
   }
