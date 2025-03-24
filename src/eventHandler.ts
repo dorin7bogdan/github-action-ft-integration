@@ -91,6 +91,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info(`Working directory: ${workDir}`);
   let testingToolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
   const toolType = (testingToolType.trim().toLowerCase() === MBT) ? ToolType.MBT : ToolType.UFT;
+  _logger.info(`Testing tool type: ${toolType}`);
   const discovery = new Discovery(toolType, workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:

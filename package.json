@@ -32,6 +32,10 @@
   "overrides": {
     "ole-doc": {
       "underscore": "1.12.1"
+    },
+    "@microfocus/alm-octane-js-rest-sdk": {
+      "axios": "1.8.4",
+      "tough-cookie":  "5.1.2"
     }
   },
   "devDependencies": {
