@@ -254,7 +254,7 @@ export default class Discovery {
   private updateOldData(test: AutomatedTest, affFileWrapper: ScmAffectedFileWrapper) {
     const oldPath = affFileWrapper.oldPath;
     if(!isBlank(oldPath)) {
-        const parts = oldPath!.split("\\");
+        const parts = oldPath!.split("/");
         const oldTestName = parts[parts.length - 2];
         test.oldName = oldTestName;
         // make sure path in windows style

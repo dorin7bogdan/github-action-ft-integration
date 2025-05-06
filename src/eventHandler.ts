@@ -106,6 +106,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
           console.log(`${t.name}, type = ${t.uftOneTestType}`);
           console.log(`  packageName: ${t.packageName}`);
           console.log(`  executable: ${t.executable}`);
+          console.log(`  isMoved: ${t.isMoved}`);
           console.log(`  octaneStatus: ${OctaneStatus.getName(t.octaneStatus)}`);
           t.changeSetSrc && console.log(`  changeSetSrc: ${t.changeSetSrc}`);
           t.changeSetDst && console.log(`  changeSetDst: ${t.changeSetDst}`);

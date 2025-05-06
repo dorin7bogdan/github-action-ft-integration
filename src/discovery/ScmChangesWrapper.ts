@@ -7,7 +7,6 @@ import { Logger } from '../utils/logger';
 import { ToolType } from '../dto/ft/ToolType';
 
 const _logger: Logger = new Logger('ScmChangesWrapper');
-const HEAD = 'HEAD'; // Compare to latest commit
 
 export interface ScmAffectedFileWrapper {
   newPath: string;
@@ -22,6 +21,7 @@ interface DiffEntry {
   to: string;
   fromId: string | null;
   toId: string | null;
+  op?: 'ADD' | 'DEL' | 'MODIFY' | 'RENAME';
 }
 
 export default class ScmChangesWrapper {
@@ -38,12 +38,10 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
 
     // Rename detection settings
     const renameThreshold = 0.5; // 50% similarity for rename detection
-    const potentialRenames: { oldPath: string; newPath: string; similarity: number }[] = [];
 
     // First pass: Identify adds, deletes, and potential renames/modifies
     for (const diff of diffs) {
-      if (diff.from === 'dev/null' && diff.to !== 'dev/null') {
-        // ADD
+      if (diff.op === 'ADD') {
         affectedFiles.push({
           newPath: diff.to,
           oldPath: null,
@@ -51,8 +49,7 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
           oldId: '', // No old ID for ADD
           newId: diff.toId || '',
         });
-      } else if (diff.to === 'dev/null' && diff.from !== 'dev/null') {
-        // DELETE
+      } else if (diff.op === 'DEL') {
         affectedFiles.push({
           newPath: diff.from,
           oldPath: diff.from,
@@ -60,32 +57,35 @@ async function wrapScmChanges(toolType: ToolType, dir: string, oldCommit: string
           oldId: diff.fromId || '',
           newId: '', // No new ID for DELETE
         });
+      } else if (diff.op === 'RENAME') {
+        affectedFiles.push({
+          newPath: diff.to,
+          oldPath: diff.from,
+          changeType: 'EDIT',
+          oldId: (await git.resolveRef({ fs, dir, ref: oldCommit })) || '',
+          newId: (await git.resolveRef({ fs, dir, ref: newCommit })) || '',
+        });
       } else {
         // Potential MODIFY or RENAME
         const similarity = await calculateSimilarity(dir, oldCommit, newCommit, diff.from, diff.to);
-        if (similarity >= renameThreshold) {
-          potentialRenames.push({ oldPath: diff.from, newPath: diff.to, similarity });
-        } else {
+        if (similarity >= renameThreshold) { // only files that have less than 50% change (similarity >= 50%) will be considered as rename
           affectedFiles.push({
             newPath: diff.to,
             oldPath: diff.from,
             changeType: 'EDIT',
-            oldId: diff.fromId || '',
+            oldId: (await git.resolveRef({ fs, dir, ref: oldCommit })) || '',
+            newId: (await git.resolveRef({ fs, dir, ref: newCommit })) || '',
+          });
+        } else { // COPY, MODIFY
+          affectedFiles.push({
+            newPath: diff.to,
+            oldPath: diff.from,
+            changeType: 'EDIT',
+            oldId: diff.toId || '',
             newId: diff.toId || '',
           });
         }
       }
-    }
-
-    // Process renames
-    for (const rename of potentialRenames) {
-      affectedFiles.push({
-        newPath: rename.newPath,
-        oldPath: rename.oldPath,
-        changeType: 'EDIT', // RENAME treated as EDIT with old/new paths
-        oldId: (await git.resolveRef({ fs, dir, ref: oldCommit })) || '',
-        newId: (await git.resolveRef({ fs, dir, ref: newCommit })) || '',
-      });
     }
 
     return affectedFiles;
@@ -108,7 +108,7 @@ async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string
     gitdir,
     trees: [
       git.TREE({ ref: oldCommit }),
-      git.TREE({ ref: HEAD }),
+      git.TREE({ ref: newCommit }),
     ],
     map: async function (filepath, [oldEntry, newEntry]) {
       const from = oldEntry ? filepath : 'dev/null';
@@ -171,7 +171,62 @@ async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string
     console.warn('No differences found.');
   }
 
-  return results;
+  // Post-process to detect renames
+  const deletes: DiffEntry[] = [];
+  const adds: DiffEntry[] = [];
+  const others: DiffEntry[] = [];
+
+  // Categorize filtered entries
+  for (const entry of results) {
+    if (entry.from !== 'dev/null' && entry.to === 'dev/null') {
+      deletes.push(entry);
+    } else if (entry.from === 'dev/null' && entry.to !== 'dev/null') {
+      adds.push(entry);
+    } else {
+      others.push(entry);
+    }
+  }
+
+  // Process renames
+  const finalResults: DiffEntry[] = [];
+  const usedAdds = new Set<DiffEntry>();
+
+  for (const del of deletes) {
+    const matchingAdd = adds.find(
+      add => add.toId === del.fromId && !usedAdds.has(add)
+    );
+    if (matchingAdd) {
+      // Found a rename
+      usedAdds.add(matchingAdd);
+      finalResults.push({
+        from: del.from,
+        to: matchingAdd.to,
+        fromId: del.fromId,
+        toId: matchingAdd.toId,
+        op: 'RENAME',
+      });
+    } else {// Regular delete
+      finalResults.push({ ...del, op: 'DEL' });
+    }
+  }
+
+  // Add remaining adds
+  for (const add of adds) {
+    if (!usedAdds.has(add)) {
+      finalResults.push({ ...add, op: 'ADD' });
+    }
+  }
+
+  // Add other operations (modifications, including root directory)
+  for (const other of others) {
+    finalResults.push({ ...other, op: 'MODIFY' });
+  }
+
+  if (finalResults.length === 0) {
+    console.warn('No differences found.');
+  }
+
+  return finalResults;
 }
 
 // Calculate similarity using the diff library
