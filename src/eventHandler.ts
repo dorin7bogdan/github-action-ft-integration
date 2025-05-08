@@ -33,7 +33,7 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
-import { saveSyncedCommit } from './utils/utils';
+import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp } from './utils/utils';
 import { context } from '@actions/github';
 import {
   buildExecutorCiId,
@@ -53,6 +53,7 @@ const _logger: Logger = new Logger('eventHandler');
 const UFT = 'uft';
 const MBT = 'mbt';
 const TESTING_TOOL_TYPE = 'testingToolType';
+const MIN_SYNC_INTERVAL = 'minSyncInterval';
 
 export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info('BEGIN handleEvent ...');
@@ -96,7 +97,17 @@ export const handleCurrentEvent = async (): Promise<void> => {
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
     case ActionsEventType.PUSH:
-      const newCommitSha = await discovery.startScanning(repoUrl);
+      const oldCommit = await getSyncedCommit();
+      if (oldCommit) {
+        const minSyncInterval = parseInt(core.getInput(MIN_SYNC_INTERVAL) ?? '0', 10);
+        _logger.info(`minSyncInterval = ${minSyncInterval} seconds.`);
+        const isIntervalElapsed = await isMinSyncIntervalElapsed(minSyncInterval);
+        if (!isIntervalElapsed) {
+          _logger.warn(`The minimum time interval of ${minSyncInterval} seconds has not yet elapsed since the last sync.`);
+          return;
+        }
+      }
+      const newCommit = await discovery.startScanning(repoUrl, oldCommit);
       const tests = discovery.getTests();
       const scmResxFiles = discovery.getScmResxFiles();
 
@@ -106,7 +117,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
           console.log(`${t.name}, type = ${t.uftOneTestType}`);
           console.log(`  packageName: ${t.packageName}`);
           console.log(`  executable: ${t.executable}`);
-          console.log(`  isMoved: ${t.isMoved}`);
+          console.log(`  isMoved: ${t.isMoved ?? false}`);
           console.log(`  octaneStatus: ${OctaneStatus.getName(t.octaneStatus)}`);
           t.changeSetSrc && console.log(`  changeSetSrc: ${t.changeSetSrc}`);
           t.changeSetDst && console.log(`  changeSetDst: ${t.changeSetDst}`);
@@ -137,7 +148,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
       }
 
       // TODO sync the tests with Octane
-      await saveSyncedCommit(newCommitSha);
+      await saveSyncedCommit(newCommit);
 
       break;
     case ActionsEventType.WORKFLOW_FINISHED:
@@ -189,4 +200,11 @@ const hasExecutorParameters = (
 
   return requiredParameters.every(name => foundNames.has(name));
 };
+
+const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
+  const lastSyncedTimestamp = await getSyncedTimestamp();
+  const currentTimestamp = new Date().getTime();
+  const timeDiffSeconds = Math.floor((currentTimestamp - lastSyncedTimestamp) / 1000);
+  return timeDiffSeconds > minSyncInterval;
+}
 

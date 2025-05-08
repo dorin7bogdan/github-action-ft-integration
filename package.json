@@ -19,7 +19,7 @@
     "@actions/core": "^1.11.1",
     "@actions/exec": "^1.1.1",
     "@actions/github": "^6.0.0",
-    "@microfocus/alm-octane-js-rest-sdk": "^25.1.0",
+    "@microfocus/alm-octane-js-rest-sdk": "^25.2.0",
     "@xmldom/xmldom": "^0.9.8",
     "adm-zip": "^0.5.16",
     "diff": "^7.0.0",
@@ -32,10 +32,6 @@
   "overrides": {
     "ole-doc": {
       "underscore": "1.12.1"
-    },
-    "@microfocus/alm-octane-js-rest-sdk": {
-      "axios": "1.8.4",
-      "tough-cookie":  "5.1.2"
     }
   },
   "devDependencies": {

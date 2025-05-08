@@ -25,10 +25,14 @@ inputs:
   testingToolType:
     description: 'Testing framework to use for the test runner'
     required: false
+  minSyncInterval:
+    description: 'Minimum number of seconds to pass between 2 synchronizations'
+    required: false
+    default: "15"
   logLevel:
     description: 'Sets the log level (1-5): 1-trace, 2-debug, 3-info, 4-warn, 5-error'
     required: false
-    default: 3
+    default: "3"
 runs:
   using: 'node20'
   main: 'dist/index.js'

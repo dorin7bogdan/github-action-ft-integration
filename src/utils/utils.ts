@@ -32,13 +32,16 @@ import * as path from 'path';
 import { UftoTestType } from '../dto/ft/UftoTestType';
 import { context } from '@actions/github';
 import * as git from 'isomorphic-git';
+import { Logger } from './logger';
 
 // File to store the string (hidden file to avoid cluttering the repo)
-const STORAGE_FILE = path.join(process.cwd(), '.synced-commit-sha.txt');
+const SYNCED_COMMIT_SHA = path.join(process.cwd(), '.synced-commit-sha');
+const SYNCED_TIMESTAMP = path.join(process.cwd(), '.synced-timestamp');
 const ACTIONS_XML = 'actions.xml';
 const _TSP = '.tsp';
 const _ST = '.st';
 const UTF8 = 'utf8';
+const _logger: Logger = new Logger('utils');
 
 async function getHeadCommitSha(dir: string): Promise<string> {
   return context.sha ?? git.resolveRef({ fs, dir, ref: 'HEAD' });
@@ -49,32 +52,57 @@ async function getHeadCommitSha(dir: string): Promise<string> {
  * @param newCommit The string to store
  */
 async function saveSyncedCommit(newCommit: string): Promise<void> {
-    if (isBlank(newCommit)) 
-      return;
-    try {
-        await fs.writeFile(STORAGE_FILE, newCommit.trim(), UTF8);
-        console.log(`Newly synced commit ${newCommit} saved to ${STORAGE_FILE}`);
-    } catch (error) {
-        throw new Error(`Failed to save string: ${(error as Error).message}`);
-    }
+  if (isBlank(newCommit))
+    return;
+  try {
+    await fs.writeFile(SYNCED_COMMIT_SHA, newCommit.trim(), UTF8);
+    _logger.debug(`Newly synced commit ${newCommit} saved to ${SYNCED_COMMIT_SHA}`);
+    await saveSyncedTimestamp();
+  } catch (error) {
+    throw new Error(`Failed to save string: ${(error as Error).message}`);
+  }
 }
 
 /**
  * Retrieves the stored string from the working directory
  * @returns The stored string, or undefined if the file doesn't exist
  */
-async function getSyncedCommit(): Promise<string | undefined> {
-    try {
-        const data = await fs.readFile(STORAGE_FILE, UTF8);
-        console.log(`Loaded string from ${STORAGE_FILE}`);
-        return data.trim();
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-            // File doesn't exist yet, return undefined
-            return undefined;
-        }
-        throw new Error(`Failed to load string: ${(error as Error).message}`);
+async function getSyncedCommit(): Promise<string> {
+  try {
+    const data = await fs.readFile(SYNCED_COMMIT_SHA, UTF8);
+    _logger.debug(`Last synced commit: ${data} loaded from ${SYNCED_COMMIT_SHA}`);
+    return data.trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      // File doesn't exist yet, return empty string
+      return "";
     }
+    throw new Error(`Failed to load string: ${(error as Error).message}`);
+  }
+}
+
+async function saveSyncedTimestamp(): Promise<void> {
+  try {
+    const currentTime = new Date().toISOString();
+    await fs.writeFile(SYNCED_TIMESTAMP, currentTime, UTF8);
+    _logger.debug(`Newly run timestamp ${currentTime} saved to ${SYNCED_TIMESTAMP}`);
+  } catch (error) {
+    throw new Error(`Failed to save string: ${(error as Error).message}`);
+  }
+}
+
+async function getSyncedTimestamp(): Promise<number> {
+  try {
+    const str = await fs.readFile(SYNCED_TIMESTAMP, UTF8);
+    _logger.debug(`Last synced timestamp: ${str} loaded from ${SYNCED_TIMESTAMP}`);
+    return new Date(str).getTime();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      // File doesn't exist yet, return 0
+      return 0;
+    }
+    throw new Error(`Failed to load string: ${(error as Error).message}`);
+  }
 }
 
 function isTestMainFile(file: string): boolean {
@@ -88,12 +116,12 @@ function getParentFolderFullPath(fullFilePath: string): string {
 }
 
 function getTestType(filePath: string): UftoTestType {
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === _ST || filePath == ACTIONS_XML) {
-      return UftoTestType.API;
-    } else if (ext === _TSP) {
-      return UftoTestType.GUI;
-    } 
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === _ST || filePath == ACTIONS_XML) {
+    return UftoTestType.API;
+  } else if (ext === _TSP) {
+    return UftoTestType.GUI;
+  }
 
   return UftoTestType.None;
 }
@@ -140,4 +168,4 @@ const sleep = async (milis: number): Promise<void> => {
   });
 };
 
-export { getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
+export { getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
