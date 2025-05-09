@@ -73839,7 +73839,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const alm_octane_js_rest_sdk_1 = __nccwpck_require__(3967);
 const query_1 = __importDefault(__nccwpck_require__(7287));
 const config_1 = __nccwpck_require__(1122);
-const utils_1 = __nccwpck_require__(5268);
 const logger_1 = __nccwpck_require__(7893);
 class OctaneClient {
     static escapeOctaneQueryValue(q) {
@@ -73847,162 +73846,125 @@ class OctaneClient {
     }
 }
 _a = OctaneClient;
-OctaneClient.LOGGER = new logger_1.Logger('octaneClient');
-OctaneClient.GITHUB_ACTIONS_SERVER_TYPE = 'github_actions';
-OctaneClient.GITHUB_ACTIONS_PLUGIN_VERSION = '25.1.1';
-OctaneClient.config = (0, config_1.getConfig)();
-OctaneClient.octane = new alm_octane_js_rest_sdk_1.Octane({
-    server: _a.config.octaneUrl,
-    sharedSpace: _a.config.octaneSharedSpace,
-    workspace: _a.config.octaneWorkspace,
-    user: _a.config.octaneClientId,
-    password: _a.config.octaneClientSecret,
+OctaneClient._logger = new logger_1.Logger('octaneClient');
+OctaneClient.GITHUB_ACTIONS = 'github_actions';
+OctaneClient.PLUGIN_VERSION = '25.2';
+OctaneClient._config = (0, config_1.getConfig)();
+OctaneClient._octane = new alm_octane_js_rest_sdk_1.Octane({
+    server: _a._config.octaneUrl,
+    sharedSpace: _a._config.octaneSharedSpace,
+    workspace: _a._config.octaneWorkspace,
+    user: _a._config.octaneClientId,
+    password: _a._config.octaneClientSecret,
     headers: {
         'ALM-OCTANE-TECH-PREVIEW': true,
         'ALM-OCTANE-PRIVATE': true
     }
 });
-OctaneClient.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a.config.octaneSharedSpace}/workspaces/${_a.config.octaneWorkspace}/analytics/ci`;
-OctaneClient.ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a.config.octaneSharedSpace}/analytics/ci`;
-OctaneClient.ANALYTICS_CI_API_URL = `/api/shared_spaces/${_a.config.octaneSharedSpace}/workspaces/${_a.config.octaneWorkspace}/analytics/ci`;
-OctaneClient.setAnalyticsSharedSpace = (sharedSpace) => {
-    _a.ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${sharedSpace}/analytics/ci`;
-};
-OctaneClient.setOctane = (newOctane) => {
-    _a.octane = newOctane;
-};
+OctaneClient.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/workspaces/${_a._config.octaneWorkspace}/analytics/ci`;
+OctaneClient.ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/analytics/ci`;
 OctaneClient.sendEvents = async (events, instanceId, url) => {
-    _a.LOGGER.debug(`Sending events to server-side app (instanceId: ${instanceId}): ${JSON.stringify(events)}`);
+    _a._logger.debug(`Sending events to server-side app (instanceId: ${instanceId}): ${JSON.stringify(events)}`);
     const ciServerInfo = {
         instanceId,
-        type: _a.GITHUB_ACTIONS_SERVER_TYPE,
+        type: _a.GITHUB_ACTIONS,
         url,
-        version: _a.GITHUB_ACTIONS_PLUGIN_VERSION,
+        version: _a.PLUGIN_VERSION,
         sendingTime: new Date().getTime()
     };
     const eventsToSend = {
         server: ciServerInfo,
         events
     };
-    await _a.octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/events`, alm_octane_js_rest_sdk_1.Octane.operationTypes.update, eventsToSend);
+    await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/events`, alm_octane_js_rest_sdk_1.Octane.operationTypes.update, eventsToSend);
 };
 OctaneClient.sendTestResult = async (testResult, instanceId, jobId, buildId) => {
-    _a.LOGGER.debug(`Sending test results for job run with {jobId='${jobId}, buildId='${buildId}', instanceId='${instanceId}'}`);
-    await _a.octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/test-results?skip-errors=true&instance-id=${instanceId}&job-ci-id=${jobId}&build-ci-id=${buildId}`, alm_octane_js_rest_sdk_1.Octane.operationTypes.create, testResult, { 'Content-Type': 'application/xml' });
+    _a._logger.debug(`Sending test results for job run with {jobId='${jobId}, buildId='${buildId}', instanceId='${instanceId}'}`);
+    await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/test-results?skip-errors=true&instance-id=${instanceId}&job-ci-id=${jobId}&build-ci-id=${buildId}`, alm_octane_js_rest_sdk_1.Octane.operationTypes.create, testResult, { 'Content-Type': 'application/xml' });
 };
 OctaneClient.createCIServer = async (name, instanceId, url) => {
-    _a.LOGGER.debug(`Creating CI server with {name='${name}', instanceId='${instanceId}'}...`);
-    return (await _a.octane
-        .create('ci_servers', {
+    _a._logger.debug(`Creating CI server with {name='${name}', instanceId='${instanceId}'}...`);
+    const res = await _a._octane.create('ci_servers', {
         name,
         instance_id: instanceId,
-        server_type: _a.GITHUB_ACTIONS_SERVER_TYPE,
+        server_type: _a.GITHUB_ACTIONS,
         url: url
     })
-        .fields('instance_id')
-        .execute()).data[0];
-};
-OctaneClient.getCiServerOrCreate = async (instanceId, projectName, baseUri, createOnAbsence = false) => {
-    _a.LOGGER.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
-    const ciServerQuery = query_1.default.field('instance_id')
-        .equal(_a.escapeOctaneQueryValue(instanceId))
-        .build();
-    const ciServers = await _a.octane
-        .get('ci_servers')
-        .fields('instance_id,plugin_version,url')
-        .query(ciServerQuery)
+        .fields('id,instance_id,name,server_type,url,plugin_version')
         .execute();
-    if (!ciServers ||
-        ciServers.total_count === 0 ||
-        ciServers.data.length === 0) {
-        if (createOnAbsence) {
-            return await _a.createCIServer(projectName, instanceId, baseUri);
-        }
-        else {
-            throw new Error(`CI Server '${projectName} (instanceId='${instanceId}'))' not found.`);
-        }
-    }
-    return ciServers.data[0];
+    return res.data[0];
 };
-OctaneClient.getExecutors = async (ciJobId, ciServer) => {
-    _a.LOGGER.debug(`Getting executor jobs with {id='${ciJobId}', ci_server.id='${ciServer.id}'}...`);
-    const executorsQuery = query_1.default.field('id')
-        .equal(_a.escapeOctaneQueryValue(ciJobId))
-        .and(query_1.default.field('ci_server').equal(query_1.default.field('id').equal(ciServer.id)))
-        .and(query_1.default.field('executor').notEqual(query_1.default.NULL_REFERENCE))
+OctaneClient.getOrCreateCiServer = async (instanceId, name, url) => {
+    _a._logger.debug(`Getting CI server with {instanceId='${instanceId}', name='${name}', url='${url}'}...`);
+    const ciServerQuery = query_1.default.field('instance_id').equal(_a.escapeOctaneQueryValue(instanceId))
+        .and(query_1.default.field('server_type').equal(_a.GITHUB_ACTIONS))
+        .and(query_1.default.field('name').equal(_a.escapeOctaneQueryValue(name)))
+        .and(query_1.default.field('url').equal(_a.escapeOctaneQueryValue(url)))
         .build();
-    const executors = await _a.octane
-        .get('ci_jobs')
-        .fields('ci_id,name,ci_server{name,instance_id},executor{name,subtype}')
-        .query(executorsQuery)
-        .execute();
-    if (!executors ||
-        executors.total_count === 0 ||
-        executors.data.length === 0) {
-        return [];
+    const res = await _a._octane.get('ci_servers').fields('instance_id,plugin_version,url').query(ciServerQuery).execute();
+    let ciServer;
+    if (res?.total_count && res.data?.length) {
+        ciServer = res.data[0];
     }
-    return executors.data;
+    else {
+        ciServer = await _a.createCIServer(name, instanceId, url);
+        _a.updatePluginVersion(instanceId);
+        ciServer.plugin_version = _a.PLUGIN_VERSION;
+    }
+    _a._logger.debug("CI Server:", ciServer);
+    return ciServer;
 };
-OctaneClient.createExecutor = async (executor) => {
-    _a.LOGGER.debug(`Creating executor with ${JSON.stringify(executor)}...`);
-    const executors = await _a.octane.create('executors', executor).execute();
-    if (!executors ||
-        executors.total_count === 0 ||
-        executors.data.length === 0) {
+OctaneClient.getCiServerByType = async (serverType) => {
+    _a._logger.debug(`Getting default CI server ...`);
+    const ciServerQuery = query_1.default.field('server_type').equal(serverType).build();
+    const ciServers = await _a._octane.get('ci_servers').fields('id,instance_id,plugin_version').query(ciServerQuery).execute();
+    if (!ciServers || ciServers.total_count === 0 || ciServers.data.length === 0) {
+        throw new Error(`Default CI Server not found.`);
+    }
+    const ciServer = ciServers.data[0];
+    _a._logger.debug("CI Server:", ciServer);
+    return ciServer;
+};
+OctaneClient.getExecutors = async (ciServerId, name) => {
+    _a._logger.debug(`Getting executors with ciServerId=${ciServerId} and name=${name} ...`);
+    const executorsQuery = query_1.default.field('ci_server').equal(query_1.default.field('id').equal(ciServerId))
+        .and(query_1.default.field('name').equal(_a.escapeOctaneQueryValue(name)))
+        .build();
+    //name,framework,test_runner_parameters,last_successful_sync,subtype,id,last_sync,next_sync,message,sync_status,ci_server{id},scm_repository{repository}
+    const executors = await _a._octane.get('executors').fields('id,name,subtype,framework').query(executorsQuery).execute();
+    const arr = executors?.data ?? [];
+    arr.forEach((e) => {
+        _a._logger.debug("Test Runner:", e);
+    });
+    return arr;
+};
+OctaneClient.createExecutor = async (body) => {
+    _a._logger.debug(`Creating executor with ${JSON.stringify(body)}...`);
+    const e = await _a._octane.create('executors', body).execute();
+    if (!e || e.total_count === 0 || e.data.length === 0) {
         throw Error('Could not create the test runner entity.');
     }
-    return executors.data[0];
+    const exec = e.data[0];
+    _a._logger.debug("Test Runner:", exec);
+    return exec;
 };
-OctaneClient.getCiServer = async (instanceId) => {
-    _a.LOGGER.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
-    const ciServerQuery = query_1.default.field('instance_id')
-        .equal(_a.escapeOctaneQueryValue(instanceId))
-        .build();
-    const ciServers = await _a.octane
+OctaneClient.getCiServerByInstanceId = async (instanceId) => {
+    _a._logger.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
+    const ciServerQuery = query_1.default.field('instance_id').equal(_a.escapeOctaneQueryValue(`${instanceId}`)).build();
+    const ciServers = await _a._octane
         .get('ci_servers')
         .fields('instance_id')
         .query(ciServerQuery)
         .execute();
-    if (!ciServers ||
-        ciServers.total_count === 0 ||
-        ciServers.data.length === 0) {
-        return undefined;
-    }
-    return ciServers.data[0];
+    return ciServers?.data?.length ? ciServers.data[0] : null;
 };
 OctaneClient.getSharedSpaceName = async (sharedSpaceId) => {
-    _a.LOGGER.debug(`Getting the name of the shared space with {id='${sharedSpaceId}'}...`);
-    return (await _a.octane.executeCustomRequest(`/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get)).data[0].name;
-};
-OctaneClient.getCiJob = async (ciId, ciServer) => {
-    _a.LOGGER.debug(`Getting job with {ci_id='${ciId}, ci_server.id='${ciServer.id}'}...`);
-    const jobQuery = query_1.default.field('ci_id')
-        .equal(_a.escapeOctaneQueryValue(ciId))
-        .and(query_1.default.field('ci_server').equal(query_1.default.field('id').equal(ciServer.id)))
-        .build();
-    const ciJobs = await _a.octane
-        .get('ci_jobs')
-        .fields('id,ci_id,name,ci_server{name,instance_id}')
-        .query(jobQuery)
-        .execute();
-    if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
-        return undefined;
-    }
-    return ciJobs.data[0];
-};
-OctaneClient.updatePluginVersionIfNeeded = async (instanceId, ciServer) => {
-    _a.LOGGER.info(`Current CI Server version: '${ciServer.plugin_version}'`);
-    if (!ciServer.plugin_version ||
-        (0, utils_1.isVersionGreaterOrEqual)(_a.GITHUB_ACTIONS_PLUGIN_VERSION, ciServer.plugin_version)) {
-        _a.LOGGER.info(`Updating CI Server version to: '${_a.GITHUB_ACTIONS_PLUGIN_VERSION}'`);
-        await _a.updatePluginVersion(instanceId);
-    }
+    _a._logger.debug(`Getting the name of the shared space with {id='${sharedSpaceId}'}...`);
+    return (await _a._octane.executeCustomRequest(`/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get)).data[0].name;
 };
 OctaneClient.getOctaneVersion = async () => {
-    const requestHeaders = {
-        'ALM-OCTANE-TECH-PREVIEW': true
-    };
-    const response = await _a.octane.executeCustomRequest(_a.ANALYTICS_CI_INTERNAL_API_URL + '/servers/connectivity/status', alm_octane_js_rest_sdk_1.Octane.operationTypes.get, undefined, requestHeaders);
+    const requestHeaders = { 'ALM-OCTANE-TECH-PREVIEW': true };
+    const response = await _a._octane.executeCustomRequest(_a.ANALYTICS_CI_INTERNAL_API_URL + '/servers/connectivity/status', alm_octane_js_rest_sdk_1.Octane.operationTypes.get, undefined, requestHeaders);
     return response.octaneVersion;
 };
 /**
@@ -74012,17 +73974,18 @@ OctaneClient.getOctaneVersion = async () => {
  * activation status (true if on, false if off) as value.
  */
 OctaneClient.getFeatureToggles = async () => {
-    _a.LOGGER.info(`Getting features' statuses (on/off)...`);
-    const response = await _a.octane.executeCustomRequest(`${_a.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL}/github_feature_toggles`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
+    _a._logger.info(`Getting features' statuses (on/off)...`);
+    const response = await _a._octane.executeCustomRequest(`${_a.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL}/github_feature_toggles`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
     return response;
 };
 OctaneClient.updatePluginVersion = async (instanceId) => {
     const querystring = __nccwpck_require__(3480);
     const sdk = '';
-    const pluginVersion = _a.GITHUB_ACTIONS_PLUGIN_VERSION;
-    const client_id = _a.config.octaneClientId;
-    const selfUrl = querystring.escape(_a.config.serverBaseUrl);
-    await _a.octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/servers/${instanceId}/tasks?self-type=${_a.GITHUB_ACTIONS_SERVER_TYPE}&api-version=1&sdk-version=${sdk}&plugin-version=${pluginVersion}&self-url=${selfUrl}&client-id=${client_id}&client-server-user=`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
+    const pluginVersion = _a.PLUGIN_VERSION;
+    const client_id = _a._config.octaneClientId;
+    const selfUrl = querystring.escape(_a._config.repoUrl);
+    _a._logger.debug(`Updating CI Server's plugin_version to: '${_a.PLUGIN_VERSION}'`);
+    await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/servers/${instanceId}/tasks?self-type=${_a.GITHUB_ACTIONS}&api-version=1&sdk-version=${sdk}&plugin-version=${pluginVersion}&self-url=${selfUrl}&client-id=${client_id}&client-server-user=`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
 };
 exports["default"] = OctaneClient;
 
@@ -74064,20 +74027,30 @@ exports["default"] = OctaneClient;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.setConfig = exports.getConfig = void 0;
+const github_1 = __nccwpck_require__(3228);
 const core_1 = __nccwpck_require__(7484);
+const serverUrl = github_1.context.serverUrl;
+const { owner, repo } = github_1.context.repo;
+if (!serverUrl || !owner || !repo) {
+    throw new Error('Event should contain repository details!');
+}
 let config;
 let errorLoadingConfig;
 try {
     config = {
-        octaneUrl: (0, core_1.getInput)('octaneUrl'),
-        octaneSharedSpace: Number.parseInt((0, core_1.getInput)('octaneSharedSpace')),
-        octaneWorkspace: Number.parseInt((0, core_1.getInput)('octaneWorkspace')),
-        octaneClientId: (0, core_1.getInput)('octaneClientId'),
-        octaneClientSecret: (0, core_1.getInput)('octaneClientSecret'),
-        githubToken: (0, core_1.getInput)('githubToken'),
-        serverBaseUrl: (0, core_1.getInput)('serverBaseUrl'),
-        testingTool: (0, core_1.getInput)('testingFramework'),
-        logLevel: Number.parseInt((0, core_1.getInput)('logLevel'))
+        octaneUrl: (0, core_1.getInput)('octaneUrl').trim(),
+        octaneSharedSpace: Number.parseInt((0, core_1.getInput)('octaneSharedSpace').trim()),
+        octaneWorkspace: Number.parseInt((0, core_1.getInput)('octaneWorkspace').trim()),
+        octaneClientId: (0, core_1.getInput)('octaneClientId').trim(),
+        octaneClientSecret: (0, core_1.getInput)('octaneClientSecret').trim(),
+        githubToken: (0, core_1.getInput)('githubToken').trim(),
+        serverBaseUrl: serverUrl,
+        testingTool: (0, core_1.getInput)('testingToolType').toLowerCase().trim(),
+        minSyncInterval: Number.parseInt((0, core_1.getInput)('minSyncInterval').trim()),
+        owner: owner,
+        repo: repo,
+        repoUrl: `${serverUrl}/${owner}/${repo}.git`,
+        logLevel: Number.parseInt((0, core_1.getInput)('logLevel').trim())
     };
 }
 catch (error) {
@@ -74145,7 +74118,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const logger_1 = __nccwpck_require__(7893);
 const exec_1 = __nccwpck_require__(5236);
-const github_1 = __nccwpck_require__(3228);
 const core = __importStar(__nccwpck_require__(7484));
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
@@ -74156,6 +74128,8 @@ const xmldom_1 = __nccwpck_require__(8351);
 const ole_doc_1 = __nccwpck_require__(8796);
 const ScmChangesWrapper_1 = __importDefault(__nccwpck_require__(9787));
 const utils_1 = __nccwpck_require__(5268);
+const config_1 = __nccwpck_require__(1122);
+const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('Discovery');
 const GUI_TEST_FILE = 'Test.tsp';
 const API_ACTIONS_FILE = "actions.xml"; //api test
@@ -74269,11 +74243,8 @@ class Discovery {
     sortDataTables() {
         this._scmResxFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
     }
-    async startScanning(repoUrl, oldCommit) {
+    async startScanning(oldCommit) {
         _logger.info('BEGIN startScanning ...');
-        if (!repoUrl || repoUrl?.trim() === '') {
-            throw new Error('Repository URL is required!');
-        }
         const didFullCheckout = await this.checkoutRepo();
         const newCommit = await (0, utils_1.getHeadCommitSha)(this._workDir);
         if (didFullCheckout) {
@@ -74798,11 +74769,8 @@ class Discovery {
         _logger.info('BEGIN checkoutRepo ...');
         try {
             const token = core.getInput('githubToken', { required: true });
-            const { owner, repo } = github_1.context.repo;
-            const serverUrl = github_1.context.serverUrl;
             let didFullCheckout = false;
-            const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-            const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
+            const authRepoUrl = _config.repoUrl.replace('https://', `https://x-access-token:${token}@`);
             _logger.debug(`Expected authRepoUrl: ${authRepoUrl}`);
             // Filter process.env to exclude undefined values
             const filteredEnv = {};
@@ -75301,39 +75269,6 @@ UftoTestType.None = new UftoTestType("none");
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -75345,16 +75280,13 @@ const ciEventsService_1 = __nccwpck_require__(39);
 const logger_1 = __nccwpck_require__(7893);
 const utils_1 = __nccwpck_require__(5268);
 const github_1 = __nccwpck_require__(3228);
-const core = __importStar(__nccwpck_require__(7484));
+const executorService_1 = __nccwpck_require__(4511);
 const Discovery_1 = __importDefault(__nccwpck_require__(6672));
 const ToolType_1 = __nccwpck_require__(2744);
 const UftoParamDirection_1 = __nccwpck_require__(2410);
 const OctaneStatus_1 = __nccwpck_require__(2828);
+const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('eventHandler');
-const UFT = 'uft';
-const MBT = 'mbt';
-const TESTING_TOOL_TYPE = 'testingToolType';
-const MIN_SYNC_INTERVAL = 'minSyncInterval';
 const handleCurrentEvent = async () => {
     _logger.info('BEGIN handleEvent ...');
     const event = github_1.context.payload;
@@ -75370,21 +75302,14 @@ const handleCurrentEvent = async () => {
         return;
     }
     _logger.info(`eventType = ${event?.action || eventName}`);
-    const serverUrl = github_1.context.serverUrl;
-    const { owner, repo } = github_1.context.repo;
-    const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-    if (!repoUrl) {
-        throw new Error('Event should contain repository data!');
-    }
     /*  const workflowFilePath = event.workflow?.path;
       const workflowName = event.workflow?.name;
       const workflowRunId = event.workflow_run?.id;
       const branchName = event.workflow_run?.head_branch;*/
-    _logger.info(`Current repository URL: ${repoUrl}`);
+    _logger.info(`Current repository URL: ${_config.repoUrl}`);
     const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
     _logger.info(`Working directory: ${workDir}`);
-    let testingToolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
-    const toolType = (testingToolType.trim().toLowerCase() === MBT) ? ToolType_1.ToolType.MBT : ToolType_1.ToolType.UFT;
+    const toolType = (_config.testingTool === "mbt") ? ToolType_1.ToolType.MBT : ToolType_1.ToolType.UFT;
     _logger.info(`Testing tool type: ${toolType}`);
     const discovery = new Discovery_1.default(toolType, workDir);
     switch (eventType) {
@@ -75392,7 +75317,7 @@ const handleCurrentEvent = async () => {
         case "push" /* ActionsEventType.PUSH */:
             const oldCommit = await (0, utils_1.getSyncedCommit)();
             if (oldCommit) {
-                const minSyncInterval = parseInt(core.getInput(MIN_SYNC_INTERVAL) ?? '0', 10);
+                const minSyncInterval = _config.minSyncInterval;
                 _logger.info(`minSyncInterval = ${minSyncInterval} seconds.`);
                 const isIntervalElapsed = await isMinSyncIntervalElapsed(minSyncInterval);
                 if (!isIntervalElapsed) {
@@ -75400,7 +75325,7 @@ const handleCurrentEvent = async () => {
                     return;
                 }
             }
-            const newCommit = await discovery.startScanning(repoUrl, oldCommit);
+            const newCommit = await discovery.startScanning(oldCommit);
             const tests = discovery.getTests();
             const scmResxFiles = discovery.getScmResxFiles();
             if (_logger.isDebugEnabled()) {
@@ -75439,7 +75364,10 @@ const handleCurrentEvent = async () => {
                 }
             }
             // TODO sync the tests with Octane
-            await (0, utils_1.saveSyncedCommit)(newCommit);
+            await doTestSync();
+            if (newCommit !== oldCommit) {
+                await (0, utils_1.saveSyncedCommit)(newCommit);
+            }
             break;
         case "completed" /* ActionsEventType.WORKFLOW_FINISHED */:
             _logger.info('WORKFLOW_FINISHED.');
@@ -75451,22 +75379,20 @@ const handleCurrentEvent = async () => {
     _logger.info('END handleEvent ...');
 };
 exports.handleCurrentEvent = handleCurrentEvent;
-const getCiServerInstanceId = (repositoryOwner, useOldCiServer) => {
-    if (useOldCiServer) {
-        return `GHA/${(0, config_1.getConfig)().octaneSharedSpace}`;
-    }
-    else {
-        return `GHA-${repositoryOwner}`;
-    }
+const getCiServerInstanceId = (useOldCiServer = false) => {
+    return useOldCiServer ? `GHA/${_config.octaneSharedSpace}` : `GHA-${_config.owner}`;
 };
-const getCiServerName = async (repositoryOwner, useOldCiServer) => {
+const getCiServerName = async (useOldCiServer = false) => {
     if (useOldCiServer) {
-        const sharedSpaceName = await octaneClient_1.default.getSharedSpaceName((0, config_1.getConfig)().octaneSharedSpace);
+        const sharedSpaceName = await octaneClient_1.default.getSharedSpaceName(_config.octaneSharedSpace);
         return `GHA/${sharedSpaceName}`;
     }
     else {
-        return `GHA-${repositoryOwner}`;
+        return `GHA-${_config.owner}`;
     }
+};
+const getExecutorName = () => {
+    return `GHA-${_config.owner}-${_config.repo}`;
 };
 const hasExecutorParameters = (configParameters) => {
     if (!configParameters) {
@@ -75481,6 +75407,14 @@ const isMinSyncIntervalElapsed = async (minSyncInterval) => {
     const currentTimestamp = new Date().getTime();
     const timeDiffSeconds = Math.floor((currentTimestamp - lastSyncedTimestamp) / 1000);
     return timeDiffSeconds > minSyncInterval;
+};
+const doTestSync = async () => {
+    const ciFteServer = await octaneClient_1.default.getCiServerByType("fte_cloud");
+    const ciServerInstanceId = getCiServerInstanceId();
+    const ciServerName = await getCiServerName();
+    const ciServer = await octaneClient_1.default.getOrCreateCiServer(ciServerInstanceId, ciServerName, _config.repoUrl);
+    const ex = await (0, executorService_1.getOrCreateExecutor)(getExecutorName(), _config.testingTool, ciServer.id);
+    //TODO create Cloud Runner (executor)
 };
 
 
@@ -75635,6 +75569,114 @@ const getRunResult = (conclusion) => {
         default:
             return "unavailable" /* Result.UNAVAILABLE */;
     }
+};
+
+
+/***/ }),
+
+/***/ 4511:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+/*
+ * Copyright 2016-2025 Open Text.
+ *
+ * The only warranties for products and services of Open Text and
+ * its affiliates and licensors (“Open Text”) are as may be set forth
+ * in the express warranty statements accompanying such products and services.
+ * Nothing herein should be construed as constituting an additional warranty.
+ * Open Text shall not be liable for technical or editorial errors or
+ * omissions contained herein. The information contained herein is subject
+ * to change without notice.
+ *
+ * Except as specifically indicated otherwise, this document contains
+ * confidential information and a valid license is required for possession,
+ * use or copying. If this work is provided to the U.S. Government,
+ * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
+ * Computer Software Documentation, and Technical Data for Commercial Items are
+ * licensed to the U.S. Government under vendor's standard commercial license.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.sendExecutorFinishEvent = exports.sendExecutorStartEvent = exports.buildExecutorCiId = exports.buildExecutorName = exports.getOrCreateExecutor = exports.getExecutor = void 0;
+const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
+const logger_1 = __nccwpck_require__(7893);
+const ciEventsService_1 = __nccwpck_require__(39);
+const _logger = new logger_1.Logger('executorService');
+const getExecutor = async (ciServerId, name) => {
+    let executors = await octaneClient_1.default.getExecutors(ciServerId, name);
+    if (executors.length === 0) {
+        return null;
+    }
+    return executors[0];
+};
+exports.getExecutor = getExecutor;
+const getOrCreateExecutor = async (name, framework, ciServerId) => {
+    const executor = await getExecutor(ciServerId, name);
+    if (executor) {
+        return executor;
+    }
+    return await octaneClient_1.default.createExecutor({
+        name: name,
+        subtype: 'test_runner',
+        framework: {
+            id: getFrameworkId(framework),
+            type: 'list_node'
+        },
+        ci_server: {
+            id: ciServerId,
+            type: 'ci_server'
+        }
+    });
+};
+exports.getOrCreateExecutor = getOrCreateExecutor;
+const sendExecutorStartEvent = async (event, executorName, executorCiId, parentCiId, buildCiId, runNumber, branchName, startTime, baseUrl, parameters, causes, ciServer) => {
+    const startEvent = (0, ciEventsService_1.generateRootExecutorEvent)(event, executorName, executorCiId, buildCiId, runNumber, branchName, startTime, "started" /* CiEventType.STARTED */, parameters, causes, "CHILD" /* MultiBranchType.CHILD */, parentCiId, "internal" /* PhaseType.INTERNAL */);
+    await octaneClient_1.default.sendEvents([startEvent], ciServer.instance_id, baseUrl);
+};
+exports.sendExecutorStartEvent = sendExecutorStartEvent;
+const sendExecutorFinishEvent = async (event, executorName, executorCiId, parentCiId, buildCiId, runNumber, branchName, startTime, baseUrl, parameters, causes, ciServer) => {
+    const finishEvent = (0, ciEventsService_1.generateRootExecutorEvent)(event, executorName, executorCiId, buildCiId, runNumber, branchName, startTime, "finished" /* CiEventType.FINISHED */, parameters, causes, "CHILD" /* MultiBranchType.CHILD */, parentCiId);
+    await octaneClient_1.default.sendEvents([finishEvent], ciServer.instance_id, baseUrl);
+};
+exports.sendExecutorFinishEvent = sendExecutorFinishEvent;
+const buildExecutorName = (executorNamePattern, repositoryOwner, repositoryName, workflowName, workflowFileName) => {
+    return executorNamePattern
+        .replace('${repository_owner}', repositoryOwner)
+        .replace('${repository_name}', repositoryName)
+        .replace('${workflow_name}', workflowName)
+        .replace('${workflow_file_name}', workflowFileName);
+};
+exports.buildExecutorName = buildExecutorName;
+const buildExecutorCiId = (repositoryOwner, repositoryName, workflowFileName, branchName) => {
+    return branchName
+        ? `${repositoryOwner}/${repositoryName}/${workflowFileName}/executor/${branchName}`
+        : `${repositoryOwner}/${repositoryName}/${workflowFileName}/executor`;
+};
+exports.buildExecutorCiId = buildExecutorCiId;
+const getFrameworkId = (framework) => {
+    let frameworkId;
+    switch (framework) {
+        case 'mbt':
+            frameworkId = 'list_node.je.framework.mbt';
+            break;
+        default:
+            frameworkId = 'list_node.je.framework.uft';
+    }
+    return frameworkId;
 };
 
 

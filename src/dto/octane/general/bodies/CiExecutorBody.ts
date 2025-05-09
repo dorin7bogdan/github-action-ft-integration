@@ -27,7 +27,6 @@
  * limitations under the License.
  */
 
-import CiJobBody from './CiJobBody';
 import CiServerBody from './CiServerBody';
 import FrameworkBody from './FrameworkBody';
 
@@ -36,5 +35,4 @@ export default interface CiExecutorBody {
   subtype: string;
   framework: FrameworkBody;
   ci_server: CiServerBody;
-  ci_job: CiJobBody;
 }

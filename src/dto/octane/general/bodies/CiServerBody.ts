@@ -29,7 +29,7 @@
 
 export default interface CiServerBody {
   type: string;
-  id: string;
+  id: number;
   instance_id?: string;
   plugin_version?: string;
 }

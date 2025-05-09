@@ -1,6 +1,5 @@
 import { Logger } from '../utils/logger';
 import { exec } from '@actions/exec';
-import { context } from '@actions/github';
 import * as core from '@actions/core';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -14,8 +13,10 @@ import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
 import ScmChangesWrapper, { ScmAffectedFileWrapper } from './ScmChangesWrapper';
-import { getHeadCommitSha, getParentFolderFullPath, getSyncedCommit, getSyncedTimestamp, getTestType, isBlank, isTestMainFile } from '../utils/utils';
+import { getHeadCommitSha, getParentFolderFullPath, getTestType, isBlank, isTestMainFile } from '../utils/utils';
+import { getConfig } from '../config/config';
 
+const _config = getConfig();
 const _logger: Logger = new Logger('Discovery');
 const GUI_TEST_FILE = 'Test.tsp';
 const API_ACTIONS_FILE = "actions.xml";//api test
@@ -151,11 +152,8 @@ export default class Discovery {
     this._scmResxFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   }  
 
-  public async startScanning(repoUrl: string, oldCommit: string): Promise<string> {
+  public async startScanning(oldCommit: string): Promise<string> {
     _logger.info('BEGIN startScanning ...');
-    if (!repoUrl || repoUrl?.trim() === '') {
-      throw new Error('Repository URL is required!');
-    }
     const didFullCheckout = await this.checkoutRepo();
     const newCommit = await getHeadCommitSha(this._workDir);
     if (didFullCheckout) {
@@ -688,7 +686,6 @@ export default class Discovery {
         return UftoTestType.GUI;
       }
     }
-
     return UftoTestType.None;
   }
 
@@ -712,12 +709,9 @@ export default class Discovery {
     _logger.info('BEGIN checkoutRepo ...');
     try {
       const token = core.getInput('githubToken', { required: true });
-      const { owner, repo } = context.repo;
-      const serverUrl = context.serverUrl;
       let didFullCheckout = false;
 
-      const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-      const authRepoUrl = repoUrl.replace('https://', `https://x-access-token:${token}@`);
+      const authRepoUrl = _config.repoUrl.replace('https://', `https://x-access-token:${token}@`);
       _logger.debug(`Expected authRepoUrl: ${authRepoUrl}`);
 
       // Filter process.env to exclude undefined values
@@ -730,11 +724,11 @@ export default class Discovery {
 
       // Configure Git options with common properties
       const gitOptions = {
-        cwd: this._workDir,          // Common working directory
+        cwd: this._workDir,     // Common working directory
         ignoreReturnCode: true, // Ignore non-zero exit codes by default
-        silent: false,         // Keep false for debugging
-        env: filteredEnv,      // Use filtered env with only string values
-        listeners: {          // Common listeners for all Git commands
+        silent: false,          // Keep false for debugging
+        env: filteredEnv,       // Use filtered env with only string values
+        listeners: {            // Common listeners for all Git commands
           //stderr: (data: Buffer) => print(data) // for debug only
         }
       };

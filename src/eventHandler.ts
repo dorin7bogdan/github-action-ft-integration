@@ -35,25 +35,16 @@ import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
 import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp } from './utils/utils';
 import { context } from '@actions/github';
-import {
-  buildExecutorCiId,
-  buildExecutorName,
-  getOrCreateExecutor,
-  sendExecutorFinishEvent,
-  sendExecutorStartEvent
-} from './service/executorService';
+import { getOrCreateExecutor } from './service/executorService';
 import CiParameter from './dto/octane/events/CiParameter';
-import * as core from '@actions/core';
 import Discovery from './discovery/Discovery';
 import { ToolType } from './dto/ft/ToolType';
 import { UftoParamDirection } from './dto/ft/UftoParamDirection';
 import { OctaneStatus } from './dto/ft/OctaneStatus';
+import CiServer from './dto/octane/general/CiServer';
 
+const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
-const UFT = 'uft';
-const MBT = 'mbt';
-const TESTING_TOOL_TYPE = 'testingToolType';
-const MIN_SYNC_INTERVAL = 'minSyncInterval';
 
 export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info('BEGIN handleEvent ...');
@@ -74,24 +65,15 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
   _logger.info(`eventType = ${event?.action || eventName}`);
 
-  const serverUrl = context.serverUrl;
-  const { owner, repo } = context.repo;
-  const repoUrl = `${serverUrl}/${owner}/${repo}.git`;
-  if (!repoUrl) {
-    throw new Error('Event should contain repository data!');
-  }
 /*  const workflowFilePath = event.workflow?.path;
   const workflowName = event.workflow?.name;
   const workflowRunId = event.workflow_run?.id;
   const branchName = event.workflow_run?.head_branch;*/
-
-  _logger.info(`Current repository URL: ${repoUrl}`);
+  _logger.info(`Current repository URL: ${_config.repoUrl}`);
 
   const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
-
   _logger.info(`Working directory: ${workDir}`);
-  let testingToolType = core.getInput(TESTING_TOOL_TYPE) ?? UFT;
-  const toolType = (testingToolType.trim().toLowerCase() === MBT) ? ToolType.MBT : ToolType.UFT;
+  const toolType = (_config.testingTool === "mbt") ? ToolType.MBT : ToolType.UFT;
   _logger.info(`Testing tool type: ${toolType}`);
   const discovery = new Discovery(toolType, workDir);
   switch (eventType) {
@@ -99,7 +81,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
     case ActionsEventType.PUSH:
       const oldCommit = await getSyncedCommit();
       if (oldCommit) {
-        const minSyncInterval = parseInt(core.getInput(MIN_SYNC_INTERVAL) ?? '0', 10);
+        const minSyncInterval = _config.minSyncInterval;
         _logger.info(`minSyncInterval = ${minSyncInterval} seconds.`);
         const isIntervalElapsed = await isMinSyncIntervalElapsed(minSyncInterval);
         if (!isIntervalElapsed) {
@@ -107,7 +89,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
           return;
         }
       }
-      const newCommit = await discovery.startScanning(repoUrl, oldCommit);
+      const newCommit = await discovery.startScanning(oldCommit);
       const tests = discovery.getTests();
       const scmResxFiles = discovery.getScmResxFiles();
 
@@ -148,8 +130,10 @@ export const handleCurrentEvent = async (): Promise<void> => {
       }
 
       // TODO sync the tests with Octane
-      await saveSyncedCommit(newCommit);
-
+      await doTestSync();
+      if (newCommit !== oldCommit) {
+        await saveSyncedCommit(newCommit);
+      }
       break;
     case ActionsEventType.WORKFLOW_FINISHED:
       _logger.info('WORKFLOW_FINISHED.');
@@ -163,41 +147,30 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
 };
 
-const getCiServerInstanceId = (
-  repositoryOwner: string,
-  useOldCiServer: boolean
-) => {
-  if (useOldCiServer) {
-    return `GHA/${getConfig().octaneSharedSpace}`;
-  } else {
-    return `GHA-${repositoryOwner}`;
-  }
+const getCiServerInstanceId = (useOldCiServer: boolean = false) => {
+  return useOldCiServer ? `GHA/${_config.octaneSharedSpace}` : `GHA-${_config.owner}`;
 };
 
-const getCiServerName = async (
-  repositoryOwner: string,
-  useOldCiServer: boolean
-) => {
+const getCiServerName = async (useOldCiServer: boolean = false) => {
   if (useOldCiServer) {
-    const sharedSpaceName = await OctaneClient.getSharedSpaceName(
-      getConfig().octaneSharedSpace
-    );
+    const sharedSpaceName = await OctaneClient.getSharedSpaceName(_config.octaneSharedSpace);
     return `GHA/${sharedSpaceName}`;
   } else {
-    return `GHA-${repositoryOwner}`;
+    return `GHA-${_config.owner}`;
   }
 };
 
-const hasExecutorParameters = (
-  configParameters: CiParameter[] | undefined
-): boolean => {
+const getExecutorName = () => {
+  return `GHA-${_config.owner}-${_config.repo}`;
+}
+
+const hasExecutorParameters = (configParameters: CiParameter[] | undefined): boolean => {
   if (!configParameters) {
     return false;
   }
 
   const requiredParameters = ['suiteRunId', 'executionId', 'testsToRun'];
   const foundNames = new Set(configParameters.map(param => param.name));
-
   return requiredParameters.every(name => foundNames.has(name));
 };
 
@@ -208,3 +181,11 @@ const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
   return timeDiffSeconds > minSyncInterval;
 }
 
+const doTestSync = async () => {
+  const ciFteServer = await OctaneClient.getCiServerByType("fte_cloud");
+  const ciServerInstanceId = getCiServerInstanceId();
+  const ciServerName = await getCiServerName();
+  const ciServer = await OctaneClient.getOrCreateCiServer(ciServerInstanceId, ciServerName, _config.repoUrl);
+  const ex = await getOrCreateExecutor(getExecutorName(), _config.testingTool, ciServer.id);
+  //TODO create Cloud Runner (executor)
+}

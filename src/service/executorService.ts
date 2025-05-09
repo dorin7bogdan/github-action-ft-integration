@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2024 Open Text.
+ * Copyright 2016-2025 Open Text.
  *
  * The only warranties for products and services of Open Text and
  * its affiliates and licensors (“Open Text”) are as may be set forth
@@ -41,60 +41,34 @@ import CiServer from '../dto/octane/general/CiServer';
 import { Logger } from '../utils/logger';
 import { generateRootExecutorEvent } from './ciEventsService';
 
-const LOGGER: Logger = new Logger('executorService');
+const _logger: Logger = new Logger('executorService');
 
-const TEST_RUNNER_SUBTYPE = 'test_runner';
-
-const getExecutor = async (
-  ciJobId: string,
-  ciServer: CiServer
-): Promise<CiExecutor> => {
-  let executors = await OctaneClient.getExecutors(ciJobId, ciServer);
+const getExecutor = async (ciServerId: number, name: string): Promise<CiExecutor | null> => {
+  let executors = await OctaneClient.getExecutors(ciServerId, name);
 
   if (executors.length === 0) {
-    throw Error(`Could not find executor job with {id='${ciJobId}'}`);
+    return null;
   }
-
-  const executor = executors[0].executor;
-  if (!executor) {
-    throw Error(
-      `Found job with {id='${ciJobId}'}, but it is not linked to a test runner.`
-    );
-  }
-
-  return executor;
+  return executors[0];
 };
 
-const getOrCreateExecutor = async (
-  name: string,
-  ciJobId: string,
-  framework: string,
-  ciServer: CiServer
-): Promise<CiExecutor> => {
-  const frameworkId = getFrameworkId(framework);
+const getOrCreateExecutor = async (name: string, framework: string, ciServerId: number): Promise<CiExecutor> => {
+  const executor = await getExecutor(ciServerId, name);
 
-  const executors = await OctaneClient.getExecutors(ciJobId, ciServer);
-
-  LOGGER.debug(`Found executors: ${JSON.stringify(executors)}`);
-
-  if (executors.length !== 0 && executors[0].executor) {
-    return executors[0].executor;
+  if (executor) {
+    return executor;
   }
 
   return await OctaneClient.createExecutor({
     name: name,
-    subtype: TEST_RUNNER_SUBTYPE,
+    subtype: 'test_runner',
     framework: {
-      id: frameworkId,
+      id: getFrameworkId(framework),
       type: 'list_node'
     },
     ci_server: {
-      id: ciServer.id,
+      id: ciServerId,
       type: 'ci_server'
-    },
-    ci_job: {
-      id: ciJobId,
-      type: 'ci_job'
     }
   });
 };
@@ -193,32 +167,12 @@ const getFrameworkId = (framework: string): string => {
   let frameworkId;
 
   switch (framework) {
-    case 'bddScenario':
-    case 'cucumber':
-      frameworkId = 'list_node.je.framework.cucumber';
-      break;
-    case 'gradle':
-    case 'junit':
-      frameworkId = 'list_node.je.framework.junit';
-      break;
-    case 'jbehave':
-      frameworkId = 'list_node.je.framework.jbehave';
-      break;
-    case 'protractor':
-      frameworkId = 'list_node.testing_tool_type.protractor';
-      break;
-    case 'testNG':
-      frameworkId = 'list_node.je.framework.testng';
-      break;
-    case 'uft':
-      frameworkId = 'list_node.je.framework.uft';
+    case 'mbt':
+      frameworkId = 'list_node.je.framework.mbt';
       break;
     default:
-      frameworkId = 'list_node.je.framework.junit';
+      frameworkId = 'list_node.je.framework.uft';
   }
-
-  LOGGER.debug(`Framework with name '${framework}' has ID '${frameworkId}'.`);
-
   return frameworkId;
 };
 

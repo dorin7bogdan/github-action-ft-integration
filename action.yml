@@ -25,6 +25,7 @@ inputs:
   testingToolType:
     description: 'Testing framework to use for the test runner'
     required: false
+    default: 'MBT'
   minSyncInterval:
     description: 'Minimum number of seconds to pass between 2 synchronizations'
     required: false

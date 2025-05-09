@@ -27,6 +27,7 @@
  * limitations under the License.
  */
 
+import { context } from '@actions/github';
 import { getInput } from '@actions/core';
 
 interface Config {
@@ -38,7 +39,17 @@ interface Config {
   githubToken: string;
   serverBaseUrl: string;
   testingTool: string;
+  minSyncInterval: number;
+  owner: string;
+  repo: string;
+  repoUrl: string;
   logLevel: number;
+}
+
+const serverUrl = context.serverUrl;
+const { owner, repo } = context.repo;
+if (!serverUrl || !owner || !repo) {
+  throw new Error('Event should contain repository details!');
 }
 
 let config: Config | undefined;
@@ -46,15 +57,19 @@ let errorLoadingConfig: string;
 
 try {
   config = {
-    octaneUrl: getInput('octaneUrl'),
-    octaneSharedSpace: Number.parseInt(getInput('octaneSharedSpace')),
-    octaneWorkspace: Number.parseInt(getInput('octaneWorkspace')),
-    octaneClientId: getInput('octaneClientId'),
-    octaneClientSecret: getInput('octaneClientSecret'),
-    githubToken: getInput('githubToken'),
-    serverBaseUrl: getInput('serverBaseUrl'),
-    testingTool: getInput('testingFramework'),
-    logLevel: Number.parseInt(getInput('logLevel'))
+    octaneUrl: getInput('octaneUrl').trim(),
+    octaneSharedSpace: Number.parseInt(getInput('octaneSharedSpace').trim()),
+    octaneWorkspace: Number.parseInt(getInput('octaneWorkspace').trim()),
+    octaneClientId: getInput('octaneClientId').trim(),
+    octaneClientSecret: getInput('octaneClientSecret').trim(),
+    githubToken: getInput('githubToken').trim(),
+    serverBaseUrl: serverUrl,
+    testingTool: getInput('testingToolType').toLowerCase().trim(),
+    minSyncInterval: Number.parseInt(getInput('minSyncInterval').trim()),
+    owner: owner,
+    repo: repo,
+    repoUrl: `${serverUrl}/${owner}/${repo}.git`,
+    logLevel: Number.parseInt(getInput('logLevel').trim())
   };
 } catch (error: any) {
   errorLoadingConfig = error.message;

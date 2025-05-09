@@ -29,5 +29,7 @@
 
 export default interface CiExecutor {
   id: string;
+  name: string;
   subtype: string;
+  framework: string;
 }

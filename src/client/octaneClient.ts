@@ -42,49 +42,33 @@ import CiServerInfo from '../dto/octane/general/CiServerInfo';
 import CiJob from '../dto/octane/general/CiJob';
 
 export default class OctaneClient {
-  private static LOGGER: Logger = new Logger('octaneClient');
-
-  private static GITHUB_ACTIONS_SERVER_TYPE = 'github_actions';
-  private static GITHUB_ACTIONS_PLUGIN_VERSION = '25.1.1';
-  private static config = getConfig();
-  private static octane: Octane = new Octane({
-    server: this.config.octaneUrl,
-    sharedSpace: this.config.octaneSharedSpace,
-    workspace: this.config.octaneWorkspace,
-    user: this.config.octaneClientId,
-    password: this.config.octaneClientSecret,
+  private static _logger: Logger = new Logger('octaneClient');
+  private static GITHUB_ACTIONS = 'github_actions';
+  private static PLUGIN_VERSION = '25.2';
+  private static _config = getConfig();
+  private static _octane: Octane = new Octane({
+    server: this._config.octaneUrl,
+    sharedSpace: this._config.octaneSharedSpace,
+    workspace: this._config.octaneWorkspace,
+    user: this._config.octaneClientId,
+    password: this._config.octaneClientSecret,
     headers: {
       'ALM-OCTANE-TECH-PREVIEW': true,
       'ALM-OCTANE-PRIVATE': true
     }
   });
 
-  private static ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${this.config.octaneSharedSpace}/workspaces/${this.config.octaneWorkspace}/analytics/ci`;
-  private static ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${this.config.octaneSharedSpace}/analytics/ci`;
-  private static ANALYTICS_CI_API_URL = `/api/shared_spaces/${this.config.octaneSharedSpace}/workspaces/${this.config.octaneWorkspace}/analytics/ci`;
+  private static ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${this._config.octaneSharedSpace}/workspaces/${this._config.octaneWorkspace}/analytics/ci`;
+  private static ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${this._config.octaneSharedSpace}/analytics/ci`;
 
-  public static setAnalyticsSharedSpace = (sharedSpace: string) => {
-    this.ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${sharedSpace}/analytics/ci`;
-  };
-
-  public static setOctane = (newOctane: Octane) => {
-    this.octane = newOctane;
-  };
-
-  public static sendEvents = async (
-    events: CiEvent[],
-    instanceId: string,
-    url: string
-  ): Promise<void> => {
-    this.LOGGER.debug(
-      `Sending events to server-side app (instanceId: ${instanceId}): ${JSON.stringify(events)}`
-    );
+  public static sendEvents = async (events: CiEvent[], instanceId: string, url: string): Promise<void> => {
+    this._logger.debug(`Sending events to server-side app (instanceId: ${instanceId}): ${JSON.stringify(events)}`);
 
     const ciServerInfo: CiServerInfo = {
       instanceId,
-      type: this.GITHUB_ACTIONS_SERVER_TYPE,
+      type: this.GITHUB_ACTIONS,
       url,
-      version: this.GITHUB_ACTIONS_PLUGIN_VERSION,
+      version: this.PLUGIN_VERSION,
       sendingTime: new Date().getTime()
     };
 
@@ -93,24 +77,16 @@ export default class OctaneClient {
       events
     };
 
-    await this.octane.executeCustomRequest(
+    await this._octane.executeCustomRequest(
       `${this.ANALYTICS_CI_INTERNAL_API_URL}/events`,
       Octane.operationTypes.update,
       eventsToSend
     );
   };
 
-  public static sendTestResult = async (
-    testResult: string,
-    instanceId: string,
-    jobId: string,
-    buildId: string
-  ): Promise<void> => {
-    this.LOGGER.debug(
-      `Sending test results for job run with {jobId='${jobId}, buildId='${buildId}', instanceId='${instanceId}'}`
-    );
-
-    await this.octane.executeCustomRequest(
+  public static sendTestResult = async (testResult: string, instanceId: string, jobId: string, buildId: string): Promise<void> => {
+    this._logger.debug(`Sending test results for job run with {jobId='${jobId}, buildId='${buildId}', instanceId='${instanceId}'}`);
+    await this._octane.executeCustomRequest(
       `${this.ANALYTICS_CI_INTERNAL_API_URL}/test-results?skip-errors=true&instance-id=${instanceId}&job-ci-id=${jobId}&build-ci-id=${buildId}`,
       Octane.operationTypes.create,
       testResult,
@@ -118,200 +94,112 @@ export default class OctaneClient {
     );
   };
 
-  public static createCIServer = async (
-    name: string,
-    instanceId: string,
-    url: string
-  ): Promise<CiServer> => {
-    this.LOGGER.debug(
-      `Creating CI server with {name='${name}', instanceId='${instanceId}'}...`
-    );
-
-    return (
-      await this.octane
-        .create('ci_servers', {
-          name,
-          instance_id: instanceId,
-          server_type: this.GITHUB_ACTIONS_SERVER_TYPE,
-          url: url
-        })
-        .fields('instance_id')
-        .execute()
-    ).data[0];
+  private static createCIServer = async (name: string, instanceId: string, url: string): Promise<CiServer> => {
+    this._logger.debug(`Creating CI server with {name='${name}', instanceId='${instanceId}'}...`);
+    const res = await this._octane.create('ci_servers', {
+      name,
+      instance_id: instanceId,
+      server_type: this.GITHUB_ACTIONS,
+      url: url
+    })
+    .fields('id,instance_id,name,server_type,url,plugin_version')
+    .execute();
+    return res.data[0];
   };
 
-  public static getCiServerOrCreate = async (
-    instanceId: string,
-    projectName: string,
-    baseUri: string,
-    createOnAbsence = false
-  ): Promise<CiServer> => {
-    this.LOGGER.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
+  public static getOrCreateCiServer = async (instanceId: string, name: string, url: string): Promise<CiServer> => {
+    this._logger.debug(`Getting CI server with {instanceId='${instanceId}', name='${name}', url='${url}'}...`);
 
-    const ciServerQuery = Query.field('instance_id')
-      .equal(this.escapeOctaneQueryValue(instanceId))
+    const ciServerQuery = Query.field('instance_id').equal(this.escapeOctaneQueryValue(instanceId))
+      .and(Query.field('server_type').equal(this.GITHUB_ACTIONS))
+      .and(Query.field('name').equal(this.escapeOctaneQueryValue(name)))
+      .and(Query.field('url').equal(this.escapeOctaneQueryValue(url)))
       .build();
 
-    const ciServers = await this.octane
-      .get('ci_servers')
-      .fields('instance_id,plugin_version,url')
-      .query(ciServerQuery)
-      .execute();
-    if (
-      !ciServers ||
-      ciServers.total_count === 0 ||
-      ciServers.data.length === 0
-    ) {
-      if (createOnAbsence) {
-        return await this.createCIServer(projectName, instanceId, baseUri);
-      } else {
-        throw new Error(
-          `CI Server '${projectName} (instanceId='${instanceId}'))' not found.`
-        );
-      }
+    const res = await this._octane.get('ci_servers').fields('instance_id,plugin_version,url').query(ciServerQuery).execute();
+    let ciServer;
+    if (res?.total_count && res.data?.length) {
+      ciServer = res.data[0];
+    } else {
+      ciServer = await this.createCIServer(name, instanceId, url);
+      this.updatePluginVersion(instanceId);
+      ciServer.plugin_version = this.PLUGIN_VERSION;
     }
-    return ciServers.data[0];
+    this._logger.debug("CI Server:", ciServer);
+    return ciServer;
   };
 
-  public static getExecutors = async (
-    ciJobId: string,
-    ciServer: CiServer
-  ): Promise<CiJob[]> => {
-    this.LOGGER.debug(
-      `Getting executor jobs with {id='${ciJobId}', ci_server.id='${ciServer.id}'}...`
-    );
+  public static getCiServerByType = async (serverType: string): Promise<CiServer> => {
+    this._logger.debug(`Getting default CI server ...`);
 
-    const executorsQuery = Query.field('id')
-      .equal(this.escapeOctaneQueryValue(ciJobId))
-      .and(Query.field('ci_server').equal(Query.field('id').equal(ciServer.id)))
-      .and(Query.field('executor').notEqual(Query.NULL_REFERENCE))
+    const ciServerQuery = Query.field('server_type').equal(serverType).build();
+
+    const ciServers = await this._octane.get('ci_servers').fields('id,instance_id,plugin_version').query(ciServerQuery).execute();
+    if (!ciServers || ciServers.total_count === 0 || ciServers.data.length === 0) {
+      throw new Error(`Default CI Server not found.`);
+    }
+    const ciServer = ciServers.data[0];
+    this._logger.debug("CI Server:", ciServer);
+
+    return ciServer;
+  };
+
+  public static getExecutors = async (ciServerId: number, name: string): Promise<CiExecutor[]> => {
+    this._logger.debug(`Getting executors with ciServerId=${ciServerId} and name=${name} ...`);
+    const executorsQuery = Query.field('ci_server').equal(Query.field('id').equal(ciServerId))
+      .and(Query.field('name').equal(this.escapeOctaneQueryValue(name)))
       .build();
 
-    const executors = await this.octane
-      .get('ci_jobs')
-      .fields('ci_id,name,ci_server{name,instance_id},executor{name,subtype}')
-      .query(executorsQuery)
-      .execute();
+    //name,framework,test_runner_parameters,last_successful_sync,subtype,id,last_sync,next_sync,message,sync_status,ci_server{id},scm_repository{repository}
+    const executors = await this._octane.get('executors').fields('id,name,subtype,framework').query(executorsQuery).execute();
 
-    if (
-      !executors ||
-      executors.total_count === 0 ||
-      executors.data.length === 0
-    ) {
-      return [];
-    }
-
-    return executors.data;
+    const arr = executors?.data ?? [];
+    arr.forEach((e: CiExecutor) => {
+      this._logger.debug("Test Runner:", e);
+    });
+    return arr;
   };
 
-  public static createExecutor = async (
-    executor: CiExecutorBody
-  ): Promise<CiExecutor> => {
-    this.LOGGER.debug(`Creating executor with ${JSON.stringify(executor)}...`);
+  public static createExecutor = async (body: CiExecutorBody): Promise<CiExecutor> => {
+    this._logger.debug(`Creating executor with ${JSON.stringify(body)}...`);
 
-    const executors = await this.octane.create('executors', executor).execute();
+    const e = await this._octane.create('executors', body).execute();
 
-    if (
-      !executors ||
-      executors.total_count === 0 ||
-      executors.data.length === 0
-    ) {
+    if (!e || e.total_count === 0 || e.data.length === 0) {
       throw Error('Could not create the test runner entity.');
     }
-
-    return executors.data[0];
+    const exec = e.data[0];
+    this._logger.debug("Test Runner:", exec);
+    return exec;
   };
 
-  public static getCiServer = async (
-    instanceId: string
-  ): Promise<CiServerBody | undefined> => {
-    this.LOGGER.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
+  public static getCiServerByInstanceId = async (instanceId: string): Promise<CiServer | null> => {
+    this._logger.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
+    const ciServerQuery = Query.field('instance_id').equal(this.escapeOctaneQueryValue(`${instanceId}`)).build();
 
-    const ciServerQuery = Query.field('instance_id')
-      .equal(this.escapeOctaneQueryValue(instanceId))
-      .build();
-
-    const ciServers = await this.octane
+    const ciServers = await this._octane
       .get('ci_servers')
       .fields('instance_id')
       .query(ciServerQuery)
       .execute();
 
-    if (
-      !ciServers ||
-      ciServers.total_count === 0 ||
-      ciServers.data.length === 0
-    ) {
-      return undefined;
-    }
-    return ciServers.data[0];
+    return ciServers?.data?.length ? ciServers.data[0] : null;
   };
 
-  public static getSharedSpaceName = async (
-    sharedSpaceId: number
-  ): Promise<string> => {
-    this.LOGGER.debug(
-      `Getting the name of the shared space with {id='${sharedSpaceId}'}...`
-    );
+  public static getSharedSpaceName = async (sharedSpaceId: number): Promise<string> => {
+    this._logger.debug(`Getting the name of the shared space with {id='${sharedSpaceId}'}...`);
     return (
-      await this.octane.executeCustomRequest(
+      await this._octane.executeCustomRequest(
         `/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`,
         Octane.operationTypes.get
       )
     ).data[0].name;
   };
 
-  public static getCiJob = async (
-    ciId: string,
-    ciServer: CiServer
-  ): Promise<CiJob | undefined> => {
-    this.LOGGER.debug(
-      `Getting job with {ci_id='${ciId}, ci_server.id='${ciServer.id}'}...`
-    );
-
-    const jobQuery = Query.field('ci_id')
-      .equal(this.escapeOctaneQueryValue(ciId))
-      .and(Query.field('ci_server').equal(Query.field('id').equal(ciServer.id)))
-      .build();
-
-    const ciJobs = await this.octane
-      .get('ci_jobs')
-      .fields('id,ci_id,name,ci_server{name,instance_id}')
-      .query(jobQuery)
-      .execute();
-
-    if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
-      return undefined;
-    }
-
-    return ciJobs.data[0];
-  };
-
-  public static updatePluginVersionIfNeeded = async (
-    instanceId: String,
-    ciServer: CiServerBody
-  ): Promise<void> => {
-    this.LOGGER.info(`Current CI Server version: '${ciServer.plugin_version}'`);
-    if (
-      !ciServer.plugin_version ||
-      isVersionGreaterOrEqual(
-        this.GITHUB_ACTIONS_PLUGIN_VERSION,
-        ciServer.plugin_version
-      )
-    ) {
-      this.LOGGER.info(
-        `Updating CI Server version to: '${this.GITHUB_ACTIONS_PLUGIN_VERSION}'`
-      );
-      await this.updatePluginVersion(instanceId);
-    }
-  };
-
   public static getOctaneVersion = async (): Promise<string> => {
-    const requestHeaders = {
-      'ALM-OCTANE-TECH-PREVIEW': true
-    };
+    const requestHeaders = { 'ALM-OCTANE-TECH-PREVIEW': true };
 
-    const response = await this.octane.executeCustomRequest(
+    const response = await this._octane.executeCustomRequest(
       this.ANALYTICS_CI_INTERNAL_API_URL + '/servers/connectivity/status',
       Octane.operationTypes.get,
       undefined,
@@ -330,9 +218,9 @@ export default class OctaneClient {
   public static getFeatureToggles = async (): Promise<{
     [key: string]: boolean;
   }> => {
-    this.LOGGER.info(`Getting features' statuses (on/off)...`);
+    this._logger.info(`Getting features' statuses (on/off)...`);
 
-    const response = await this.octane.executeCustomRequest(
+    const response = await this._octane.executeCustomRequest(
       `${this.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL}/github_feature_toggles`,
       Octane.operationTypes.get
     );
@@ -340,16 +228,15 @@ export default class OctaneClient {
     return response;
   };
 
-  private static updatePluginVersion = async (
-    instanceId: String
-  ): Promise<void> => {
+  private static updatePluginVersion = async (instanceId: String): Promise<void> => {
     const querystring = require('querystring');
     const sdk = '';
-    const pluginVersion = this.GITHUB_ACTIONS_PLUGIN_VERSION;
-    const client_id = this.config.octaneClientId;
-    const selfUrl = querystring.escape(this.config.serverBaseUrl);
-    await this.octane.executeCustomRequest(
-      `${this.ANALYTICS_CI_INTERNAL_API_URL}/servers/${instanceId}/tasks?self-type=${this.GITHUB_ACTIONS_SERVER_TYPE}&api-version=1&sdk-version=${sdk}&plugin-version=${pluginVersion}&self-url=${selfUrl}&client-id=${client_id}&client-server-user=`,
+    const pluginVersion = this.PLUGIN_VERSION;
+    const client_id = this._config.octaneClientId;
+    const selfUrl = querystring.escape(this._config.repoUrl);
+    this._logger.debug(`Updating CI Server's plugin_version to: '${this.PLUGIN_VERSION}'`);
+    await this._octane.executeCustomRequest(
+      `${this.ANALYTICS_CI_INTERNAL_API_URL}/servers/${instanceId}/tasks?self-type=${this.GITHUB_ACTIONS}&api-version=1&sdk-version=${sdk}&plugin-version=${pluginVersion}&self-url=${selfUrl}&client-id=${client_id}&client-server-user=`,
       Octane.operationTypes.get
     );
   };
