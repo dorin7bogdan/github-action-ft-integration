@@ -169,6 +169,7 @@ async function getDiffEntries(toolType: ToolType, dir: string, oldCommit: string
 
   if (results.length === 0) {
     console.warn('No differences found.');
+    return [];
   }
 
   // Post-process to detect renames

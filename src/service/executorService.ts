@@ -28,6 +28,7 @@
  */
 
 import OctaneClient from '../client/octaneClient';
+import { getConfig } from '../config/config';
 import ActionsEvent from '../dto/github/ActionsEvent';
 import CiEventCause from '../dto/octane/events/CiEventCause';
 import CiParameter from '../dto/octane/events/CiParameter';
@@ -37,14 +38,16 @@ import {
   PhaseType
 } from '../dto/octane/events/CiTypes';
 import CiExecutor from '../dto/octane/general/CiExecutor';
+import CiJob from '../dto/octane/general/CiJob';
 import CiServer from '../dto/octane/general/CiServer';
 import { Logger } from '../utils/logger';
 import { generateRootExecutorEvent } from './ciEventsService';
 
+const _config = getConfig();
 const _logger: Logger = new Logger('executorService');
 
-const getExecutor = async (ciServerId: number, name: string): Promise<CiExecutor | null> => {
-  let executors = await OctaneClient.getExecutors(ciServerId, name);
+const getExecutor = async (ciServerId: number, name: string, subType: string): Promise<CiExecutor | null> => {
+  let executors = await OctaneClient.getExecutors(ciServerId, name, subType);
 
   if (executors.length === 0) {
     return null;
@@ -52,23 +55,34 @@ const getExecutor = async (ciServerId: number, name: string): Promise<CiExecutor
   return executors[0];
 };
 
-const getOrCreateExecutor = async (name: string, framework: string, ciServerId: number): Promise<CiExecutor> => {
-  const executor = await getExecutor(ciServerId, name);
+const getOrCreateExecutor = async (name: string, ciJobId: string, framework: string, ciServer: CiServer): Promise<CiExecutor> => {
+  const subType = "test_runner";
+  const executor = await getExecutor(ciServer.id, name, subType);
 
   if (executor) {
     return executor;
   }
+  if (!ciServer.is_connected) {
+    _logger.warn(`CI server ${ciServer.instance_id} is not connected. Create executor action might fail ...`);
+  }
 
+  //scm_url: _config.repoUrl,
+  //scm_type: 2, // GIT
   return await OctaneClient.createExecutor({
     name: name,
-    subtype: 'test_runner',
+    subtype: subType,
+    scm_repository: { id: 1004, "type": "scm_repository" },
     framework: {
       id: getFrameworkId(framework),
       type: 'list_node'
     },
     ci_server: {
-      id: ciServerId,
+      id: ciServer.id,
       type: 'ci_server'
+    },
+    ci_job: {
+      id: ciJobId,
+        type: 'ci_job'
     }
   });
 };

@@ -26,12 +26,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import OctaneClient from '../client/octaneClient';
+import { Logger } from '../utils/logger';
+import AutomatedTest from '../dto/ft/AutomatedTest';
+import { Entity } from '../dto/octane/general/Entity';
 
-export default interface CiServer {
-  id: number;
-  instance_id: string;
-  name: string,
-  url: string;
-  is_connected: boolean;
-  plugin_version: string;
+const _logger: Logger = new Logger('testsService');
+
+const fetchTestsFromOctane = async (tests: ReadonlyArray<AutomatedTest>): Promise<Map<string, Entity> | null> => {
+  const testNames = tests.map(test => test.name);
+  const entries = await OctaneClient.fetchAutomatedTestsAgainstScmRepository(testNames);
+  if (!entries || entries.size === 0) {
+    _logger.warn('No tests found in Octane');
+    return null;
+  }
+  return entries;
 }
+
+export {
+  fetchTestsFromOctane
+};

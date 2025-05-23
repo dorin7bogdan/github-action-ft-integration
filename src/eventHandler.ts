@@ -35,13 +35,17 @@ import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
 import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp } from './utils/utils';
 import { context } from '@actions/github';
-import { getOrCreateExecutor } from './service/executorService';
+import { buildExecutorCiId, buildExecutorName, getOrCreateExecutor } from './service/executorService';
 import CiParameter from './dto/octane/events/CiParameter';
 import Discovery from './discovery/Discovery';
-import { ToolType } from './dto/ft/ToolType';
 import { UftoParamDirection } from './dto/ft/UftoParamDirection';
 import { OctaneStatus } from './dto/ft/OctaneStatus';
+import { fetchTestsFromOctane } from './service/testsService';
+import DiscoveryResult from './discovery/DiscoveryResult';
+import { mbtPrepDiscoveryRes4Sync } from './discovery/mbtDiscoveryResultPreparer';
 import CiServer from './dto/octane/general/CiServer';
+import CiJob from './dto/octane/general/CiJob';
+import { getOrCreateCiJob } from './service/ciJobService';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -73,9 +77,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
   const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
   _logger.info(`Working directory: ${workDir}`);
-  const toolType = (_config.testingTool === "mbt") ? ToolType.MBT : ToolType.UFT;
-  _logger.info(`Testing tool type: ${toolType}`);
-  const discovery = new Discovery(toolType, workDir);
+  _logger.info(`Testing tool type: ${_config.testingTool.toUpperCase()}`);
+  const discovery = new Discovery(workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
     case ActionsEventType.PUSH:
@@ -89,9 +92,9 @@ export const handleCurrentEvent = async (): Promise<void> => {
           return;
         }
       }
-      const newCommit = await discovery.startScanning(oldCommit);
-      const tests = discovery.getTests();
-      const scmResxFiles = discovery.getScmResxFiles();
+      const discoveryRes = await discovery.startScanning(oldCommit);
+      const tests = discoveryRes.getAllTests();
+      const scmResxFiles = discoveryRes.getScmResxFiles();
 
       if (_logger.isDebugEnabled()) {
         console.log(`Tests: ${tests.length}`);
@@ -130,7 +133,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
       }
 
       // TODO sync the tests with Octane
-      await doTestSync();
+      await doTestSync(discoveryRes);
+      const newCommit = discoveryRes.getNewCommit();
       if (newCommit !== oldCommit) {
         await saveSyncedCommit(newCommit);
       }
@@ -181,11 +185,27 @@ const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
   return timeDiffSeconds > minSyncInterval;
 }
 
-const doTestSync = async () => {
-  const ciFteServer = await OctaneClient.getCiServerByType("fte_cloud");
+const doTestSync = async (discoveryRes: DiscoveryResult) => { /*, event: ActionsEvent*/
+  //const ciFteServer = await OctaneClient.getCiServerByType("fte_cloud");
   const ciServerInstanceId = getCiServerInstanceId();
   const ciServerName = await getCiServerName();
-  const ciServer = await OctaneClient.getOrCreateCiServer(ciServerInstanceId, ciServerName, _config.repoUrl);
-  const ex = await getOrCreateExecutor(getExecutorName(), _config.testingTool, ciServer.id);
-  //TODO create Cloud Runner (executor)
+  const configParameters: CiParameter[] = [];
+  const workflow = "Debug GitHub Action"; // TODO remove hardcoded value
+  const workflowFileName = "gha-ft-integration.yml"; // TODO remove hardcoded value
+  const branchName = "main";// event.workflow_run?.head_branch;
+  const executorCiId = buildExecutorCiId(_config.owner, _config.repo, workflowFileName, branchName);
+  const executorName = buildExecutorName(_config.pipelineNamePattern, _config.owner, _config.repo, workflow, workflowFileName);
+
+  const ciServer = await OctaneClient.getOrCreateCiServer(ciServerInstanceId, ciServerName);
+  const ciJob = await getOrCreateCiJob(executorName, executorCiId, ciServer, branchName, configParameters);
+  _logger.debug(`Executor job: id: ${ciJob.id}, name: ${ciJob.name}, ci_id: ${ciJob.ci_id}`);
+
+  //const tr = await getOrCreateExecutor(executorName, ciJob.id, _config.testingTool, ciServer);
+  const tr = await OctaneClient.createTestRunner(ciServer.id, Number(ciJob.id));
+  _logger.debug(`Test runner: ${tr.id}, name: ${tr.name}, subtype: ${tr.subtype}`);
+  //const x = await fetchTestsFromOctane(discoveryResult.getAllTests());
+  const executorId = tr.id;
+  //await mbtPrepDiscoveryRes4Sync(discoveryRes);
+  //await dispatchDiscoveryResults(executorId, discoveryRes);
 }
+

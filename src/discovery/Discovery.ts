@@ -13,11 +13,14 @@ import { OleCompoundDoc } from 'ole-doc';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
 import ScmChangesWrapper, { ScmAffectedFileWrapper } from './ScmChangesWrapper';
-import { getHeadCommitSha, getParentFolderFullPath, getTestType, isBlank, isTestMainFile } from '../utils/utils';
+import { getHeadCommitSha, getParentFolderFullPath, getTestPathPrefix, getTestType, isBlank, isTestMainFile } from '../utils/utils';
 import { getConfig } from '../config/config';
+import DiscoveryResult from './DiscoveryResult';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('Discovery');
+const _toolType = _config.testingTool === "mbt" ? ToolType.MBT : ToolType.UFT;
+
 const GUI_TEST_FILE = 'Test.tsp';
 const API_ACTIONS_FILE = "actions.xml";//api test
 const COMPONENT_INFO = "ComponentInfo";
@@ -55,13 +58,11 @@ class TspParseError extends Error {
 }
 
 export default class Discovery {
-  private _toolType: ToolType;
   private _workDir: string;
   private _tests: AutomatedTest[] = [];
   private _scmResxFiles: ScmResourceFile[] = [];
-  constructor(toolType: ToolType, workDir: string) {
-    _logger.info('Discovery constructor ...');
-    this._toolType = toolType;
+  constructor(workDir: string) {
+    _logger.debug('Discovery constructor ...');
     this._workDir = workDir;
   }
 
@@ -73,15 +74,15 @@ export default class Discovery {
     return this._tests;
   }
 
-  public getNewTests(): ReadonlyArray<AutomatedTest> {
+  private getNewTests(): ReadonlyArray<AutomatedTest> {
     return this.getTestsByOctaneStatus(OctaneStatus.NEW);
   }
 
-  public getUpdatedTests(): ReadonlyArray<AutomatedTest> {
+  private getUpdatedTests(): ReadonlyArray<AutomatedTest> {
     return this.getTestsByOctaneStatus(OctaneStatus.MODIFIED);
   }
 
-  public getDeletedTests(): ReadonlyArray<AutomatedTest> {
+  private getDeletedTests(): ReadonlyArray<AutomatedTest> {
     return this.getTestsByOctaneStatus(OctaneStatus.DELETED);
   }
 
@@ -89,23 +90,19 @@ export default class Discovery {
     return Object.freeze(this._tests.filter(automatedTest => automatedTest.octaneStatus === status));
   }
 
-  public getNewScmResxFiles(): ReadonlyArray<ScmResourceFile> {
+  private getNewScmResxFiles(): ReadonlyArray<ScmResourceFile> {
     return this.getResxFilesByOctaneStatus(OctaneStatus.NEW);
   }
 
-  public getDeletedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
+  private getDeletedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
     return this.getResxFilesByOctaneStatus(OctaneStatus.DELETED);
-  }
-
-  public getupdatedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
-    return this.getResxFilesByOctaneStatus(OctaneStatus.MODIFIED);
   }
 
   private getResxFilesByOctaneStatus(status: OctaneStatus): ReadonlyArray<ScmResourceFile> {
     return Object.freeze(this._scmResxFiles.filter(scmResxFile => scmResxFile.octaneStatus === status));
   }  
 
-  public getScmResxFiles(): ScmResourceFile[] {
+  private getScmResxFiles(): ScmResourceFile[] {
     return this._scmResxFiles;
   }
 
@@ -152,26 +149,31 @@ export default class Discovery {
     this._scmResxFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   }  
 
-  public async startScanning(oldCommit: string): Promise<string> {
-    _logger.info('BEGIN startScanning ...');
+  public async startScanning(oldCommit: string): Promise<DiscoveryResult> {
+    _logger.info('BEGIN Scanning ...');
     const didFullCheckout = await this.checkoutRepo();
     const newCommit = await getHeadCommitSha(this._workDir);
+    let isFullSync = true;
     if (didFullCheckout) {
       await this.doFullDiscovery();
     } else {
       if (oldCommit) {
-        const affectedFiles = await ScmChangesWrapper.getScmChanges(this._toolType, this._workDir, oldCommit, newCommit);
+        const affectedFiles = await ScmChangesWrapper.getScmChanges(_toolType, this._workDir, oldCommit, newCommit);
         await this.doSyncDiscovery(affectedFiles);
+        isFullSync = false;
       } else {
         await this.doFullDiscovery();
       }
     }
-    _logger.info('END startScanning ...');
-    return newCommit;
+    _logger.info('END Scanning ...');
+    return new DiscoveryResult(newCommit, this._tests, this._scmResxFiles, isFullSync);
   }
 
   private async doFullDiscovery() {
     await this.scanDirRecursively(this._workDir);
+    //not sure if we need this, tests and data tables might be already sorted
+    //this.sortTests();
+    //this.sortDataTables();
   }
 
   private async doSyncDiscovery(affectedFiles: ScmAffectedFileWrapper[]) {
@@ -191,9 +193,9 @@ export default class Discovery {
       const affectedFileFullPath = path.join(this._workDir, affectedFileWrapper.newPath);
       if (isTestMainFile(affectedFileFullPath)) {
         await this.handleTestChanges(affectedFileWrapper, affectedFileFullPath);
-      } else if (this._toolType === ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
+      } else if (_toolType === ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
         await this.handleDataTableChanges(affectedFileWrapper, affectedFileFullPath);
-      } else if (this._toolType === ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
+      } else if (_toolType === ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
         await this.handleActionChanges(affectedFileWrapper, affectedFileFullPath);
       }
     }
@@ -288,7 +290,7 @@ export default class Discovery {
           this._scmResxFiles.push(scmResxFile);
         }
       }
-    } else if (!(this._toolType === ToolType.MBT && testType === UftoTestType.API)) {
+    } else if (!(_toolType === ToolType.MBT && testType === UftoTestType.API)) {
       const automTest = await this.createAutomatedTestEx(subDirFullPath, testType);
       this._tests.push(automTest);
     }
@@ -324,7 +326,7 @@ export default class Discovery {
     test.description = descr ?? "";
 
     // discover actions only for mbt toolType and gui tests
-    if (this._toolType == ToolType.MBT && testType === UftoTestType.GUI) {
+    if (_toolType == ToolType.MBT && testType === UftoTestType.GUI) {
       const actionPathPrefix = this.getActionPathPrefix(test, false);
       const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, test.name, subDirFullPath);
       test.actions = actions;    
@@ -658,14 +660,7 @@ export default class Discovery {
 
   // in case a test was moved and we need the action path prefix before the move then set orgPath to true
   private getActionPathPrefix(test: AutomatedTest, orgPath: boolean): string {
-    return this.getTestPathPrefix(test, orgPath);
-  }
-
-  // constructs a test path that contains only the test package and name
-  private getTestPathPrefix(test: AutomatedTest, orgPath: boolean): string {
-    const testPackage = (orgPath ? test.oldPackageName : test.packageName) ?? "";
-    const testName = orgPath ? test.oldName : test.name;
-    return (testPackage.trim() == "" ? "" : testPackage + "\\") + testName;
+    return getTestPathPrefix(test, orgPath);
   }
 
   private isDataTableFile(file: string) : boolean {

@@ -2,7 +2,7 @@
  * Copyright 2016-2025 Open Text.
  *
  * The only warranties for products and services of Open Text and
- * its affiliates and licensors (‚ÄúOpen Text‚Äù) are as may be set forth
+ * its affiliates and licensors (ìOpen Textî) are as may be set forth
  * in the express warranty statements accompanying such products and services.
  * Nothing herein should be construed as constituting an additional warranty.
  * Open Text shall not be liable for technical or editorial errors or
@@ -27,11 +27,26 @@
  * limitations under the License.
  */
 
-export default interface CiServer {
+import Folder from "./Folder";
+
+export default interface Unit {
+  description?: string;
   id: number;
-  instance_id: string;
-  name: string,
-  url: string;
-  is_connected: boolean;
-  plugin_version: string;
+  type?: string;
+  name: string;
+  parent?: Folder;
+  subtype?: string;
+  automation_status: object;
+  repository_path: string;
+  test_runner?: any;
+}
+export interface UnitParam {
+  id: number;
+  type: string;
+  name: string;
+  value?: string;
+  subtype?: string;
+  model_item: any; //UnitBody
+  parameter_type: object;
+  default_value?: string;
 }

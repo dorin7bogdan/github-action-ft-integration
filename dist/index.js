@@ -4578,6 +4578,9 @@ class UrlBuilder {
         this._isFirstParam = true;
         let builtUrl = '';
         if (this._requestUrl.entityName) {
+          if (this._requestUrl.entityName == "test_runners")
+            builtUrl = `${builtUrl}/internal-api/shared_spaces/${this._sharedSpace}/workspaces/${this._workspace}/je/test_runners/uft`;
+          else
             builtUrl = `${builtUrl}/api/shared_spaces/${this._sharedSpace}/workspaces/${this._workspace}/${this._requestUrl.entityName}`;
         }
         if (this._requestUrl.at) {
@@ -73840,9 +73843,28 @@ const alm_octane_js_rest_sdk_1 = __nccwpck_require__(3967);
 const query_1 = __importDefault(__nccwpck_require__(7287));
 const config_1 = __nccwpck_require__(1122);
 const logger_1 = __nccwpck_require__(7893);
+const utils_1 = __nccwpck_require__(5268);
+const EntityConstants_1 = __nccwpck_require__(9129);
+const { ID, COLLECTION_NAME: MODEL_ITEMS, NAME, LOGICAL_NAME, ENTITY_NAME: MODEL_ITEM, ENTITY_SUBTYPE: MODEL_FOLDER, SUBTYPE, PARENT } = EntityConstants_1.EntityConstants.ModelFolder;
+const { COLLECTION_NAME: AUTOMATED_TESTS, TEST_RUNNER } = EntityConstants_1.EntityConstants.AutomatedTest;
+const { REPOSITORY_PATH } = EntityConstants_1.EntityConstants.MbtUnit;
+const SERVER_TYPE = 'server_type';
+const CI_SERVERS = 'ci_servers';
+const CI_SERVER = 'ci_server';
+const SCM_REPOSITORY = 'scm_repository';
+const TESTING_TOOL_TYPE = 'testing_tool_type';
+const INSTANCE_ID = 'instance_id';
 class OctaneClient {
-    static escapeOctaneQueryValue(q) {
-        return (q && q.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'));
+    static fetchUnitsFromFolders(scmRepositoryId, folderNames) {
+        if (!folderNames || folderNames.length === 0) {
+            return Promise.resolve([]);
+        }
+        ;
+        this._logger.debug(`Getting units (model_items) ...`);
+        const qry1 = query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepositoryId));
+        const qry2 = folderNames.map(folderName => query_1.default.field(PARENT).equal(query_1.default.field(NAME).equal(folderName))).reduce((acc, curr) => acc.or(curr), query_1.default.NULL);
+        const q = qry1.and(qry2).build();
+        return this.fetchUnits(q);
     }
 }
 _a = OctaneClient;
@@ -73863,6 +73885,8 @@ OctaneClient._octane = new alm_octane_js_rest_sdk_1.Octane({
 });
 OctaneClient.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/workspaces/${_a._config.octaneWorkspace}/analytics/ci`;
 OctaneClient.ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/analytics/ci`;
+OctaneClient.CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/workspaces/${_a._config.octaneWorkspace}`;
+OctaneClient.CI_API_URL = `/api/shared_spaces/${_a._config.octaneSharedSpace}/workspaces/${_a._config.octaneWorkspace}`;
 OctaneClient.sendEvents = async (events, instanceId, url) => {
     _a._logger.debug(`Sending events to server-side app (instanceId: ${instanceId}): ${JSON.stringify(events)}`);
     const ciServerInfo = {
@@ -73884,30 +73908,28 @@ OctaneClient.sendTestResult = async (testResult, instanceId, jobId, buildId) => 
 };
 OctaneClient.createCIServer = async (name, instanceId, url) => {
     _a._logger.debug(`Creating CI server with {name='${name}', instanceId='${instanceId}'}...`);
-    const res = await _a._octane.create('ci_servers', {
+    const res = await _a._octane.create(CI_SERVERS, {
         name,
         instance_id: instanceId,
         server_type: _a.GITHUB_ACTIONS,
         url: url
-    })
-        .fields('id,instance_id,name,server_type,url,plugin_version')
+    }).fields('id,instance_id,name,server_type,url,plugin_version')
         .execute();
     return res.data[0];
 };
-OctaneClient.getOrCreateCiServer = async (instanceId, name, url) => {
-    _a._logger.debug(`Getting CI server with {instanceId='${instanceId}', name='${name}', url='${url}'}...`);
-    const ciServerQuery = query_1.default.field('instance_id').equal(_a.escapeOctaneQueryValue(instanceId))
-        .and(query_1.default.field('server_type').equal(_a.GITHUB_ACTIONS))
-        .and(query_1.default.field('name').equal(_a.escapeOctaneQueryValue(name)))
-        .and(query_1.default.field('url').equal(_a.escapeOctaneQueryValue(url)))
+OctaneClient.getOrCreateCiServer = async (instanceId, name) => {
+    _a._logger.debug(`Getting CI server with {instanceId='${instanceId}', url='${_a._config.repoUrl}'}...`);
+    const ciServerQuery = query_1.default.field(INSTANCE_ID).equal((0, utils_1.escapeQueryVal)(instanceId))
+        .and(query_1.default.field(SERVER_TYPE).equal(_a.GITHUB_ACTIONS))
+        .and(query_1.default.field('url').equal((0, utils_1.escapeQueryVal)(_a._config.repoUrl)))
         .build();
-    const res = await _a._octane.get('ci_servers').fields('instance_id,plugin_version,url').query(ciServerQuery).execute();
+    const res = await _a._octane.get(CI_SERVERS).fields('instance_id,plugin_version,url,is_connected').query(ciServerQuery).execute();
     let ciServer;
     if (res?.total_count && res.data?.length) {
         ciServer = res.data[0];
     }
     else {
-        ciServer = await _a.createCIServer(name, instanceId, url);
+        ciServer = await _a.createCIServer(name, instanceId, _a._config.repoUrl);
         _a.updatePluginVersion(instanceId);
         ciServer.plugin_version = _a.PLUGIN_VERSION;
     }
@@ -73916,8 +73938,8 @@ OctaneClient.getOrCreateCiServer = async (instanceId, name, url) => {
 };
 OctaneClient.getCiServerByType = async (serverType) => {
     _a._logger.debug(`Getting default CI server ...`);
-    const ciServerQuery = query_1.default.field('server_type').equal(serverType).build();
-    const ciServers = await _a._octane.get('ci_servers').fields('id,instance_id,plugin_version').query(ciServerQuery).execute();
+    const ciServerQuery = query_1.default.field(SERVER_TYPE).equal(serverType).build();
+    const ciServers = await _a._octane.get(CI_SERVERS).fields('id,instance_id,plugin_version').query(ciServerQuery).execute();
     if (!ciServers || ciServers.total_count === 0 || ciServers.data.length === 0) {
         throw new Error(`Default CI Server not found.`);
     }
@@ -73925,10 +73947,11 @@ OctaneClient.getCiServerByType = async (serverType) => {
     _a._logger.debug("CI Server:", ciServer);
     return ciServer;
 };
-OctaneClient.getExecutors = async (ciServerId, name) => {
+OctaneClient.getExecutors = async (ciServerId, name, subType) => {
     _a._logger.debug(`Getting executors with ciServerId=${ciServerId} and name=${name} ...`);
-    const executorsQuery = query_1.default.field('ci_server').equal(query_1.default.field('id').equal(ciServerId))
-        .and(query_1.default.field('name').equal(_a.escapeOctaneQueryValue(name)))
+    const executorsQuery = query_1.default.field(CI_SERVER).equal(query_1.default.field(ID).equal(ciServerId))
+        .and(query_1.default.field(NAME).equal((0, utils_1.escapeQueryVal)(name)))
+        .and(query_1.default.field(SUBTYPE).equal(subType))
         .build();
     //name,framework,test_runner_parameters,last_successful_sync,subtype,id,last_sync,next_sync,message,sync_status,ci_server{id},scm_repository{repository}
     const executors = await _a._octane.get('executors').fields('id,name,subtype,framework').query(executorsQuery).execute();
@@ -73939,8 +73962,46 @@ OctaneClient.getExecutors = async (ciServerId, name) => {
     return arr;
 };
 OctaneClient.createExecutor = async (body) => {
-    _a._logger.debug(`Creating executor with ${JSON.stringify(body)}...`);
-    const e = await _a._octane.create('executors', body).execute();
+    try {
+        _a._logger.debug(`Creating executor with ${JSON.stringify(body)}...`);
+        const e = await _a._octane.create('executors', body).execute();
+        if (!e || e.total_count === 0 || e.data.length === 0) {
+            throw Error('Could not create the test runner entity.');
+        }
+        const exec = e.data[0];
+        _a._logger.debug("Test Runner:", exec);
+        return exec;
+    }
+    catch (error) {
+        _a._logger.error(`Error creating executor: ${error?.message}`);
+        throw error;
+    }
+};
+//TODO retest this method when fixed in Octane
+OctaneClient.createTestRunner = async (ciServerId, ciJobId) => {
+    const obj = {
+        name: "GHA Executor created From SDK",
+        framework: {
+            id: "list_node.je.framework.mbt",
+            // name: "UFT",
+            type: "list_node"
+            // logical_name: "list_node.je.framework.uft"
+        },
+        ci_server: {
+            id: ciServerId,
+            type: "ci_server"
+        },
+        ci_job: {
+            id: ciJobId,
+            type: 'ci_job'
+        },
+        scm_repository: { id: 1004, "type": "scm_repository" } //      scm_type: 2, scm_url: "https://github.com/dorin7bogdan/ufto-tests.git"
+    };
+    const body = JSON.stringify(obj);
+    _a._logger.debug(`Creating test_runner with ${body}...`);
+    //const e = await this._octane.create('test_runners', obj).execute();
+    const headers = { 'ALM-OCTANE-TECH-PREVIEW': true }; //, 'ALM-OCTANE-PRIVATE': true 
+    const e = await _a._octane.executeCustomRequest(`${_a.CI_INTERNAL_API_URL}/je/test_runners/uft"`, alm_octane_js_rest_sdk_1.Octane.operationTypes.create, body, headers);
     if (!e || e.total_count === 0 || e.data.length === 0) {
         throw Error('Could not create the test runner entity.');
     }
@@ -73950,12 +74011,8 @@ OctaneClient.createExecutor = async (body) => {
 };
 OctaneClient.getCiServerByInstanceId = async (instanceId) => {
     _a._logger.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
-    const ciServerQuery = query_1.default.field('instance_id').equal(_a.escapeOctaneQueryValue(`${instanceId}`)).build();
-    const ciServers = await _a._octane
-        .get('ci_servers')
-        .fields('instance_id')
-        .query(ciServerQuery)
-        .execute();
+    const ciServerQuery = query_1.default.field(INSTANCE_ID).equal((0, utils_1.escapeQueryVal)(`${instanceId}`)).build();
+    const ciServers = await _a._octane.get(CI_SERVERS).fields(INSTANCE_ID).query(ciServerQuery).execute();
     return ciServers?.data?.length ? ciServers.data[0] : null;
 };
 OctaneClient.getSharedSpaceName = async (sharedSpaceId) => {
@@ -73978,6 +74035,162 @@ OctaneClient.getFeatureToggles = async () => {
     const response = await _a._octane.executeCustomRequest(`${_a.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL}/github_feature_toggles`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
     return response;
 };
+OctaneClient.fetchAutomatedTestsAgainstScmRepository = async (testNames = [], linkedToScmRepo = false) => {
+    _a._logger.debug(`Getting automated tests linked to SCM repository ...`);
+    const testingToolTypeId = _a.getTestingToolTypeId(_a._config.testingTool);
+    const qry = query_1.default.field(TESTING_TOOL_TYPE).equal(query_1.default.field(ID).equal(testingToolTypeId));
+    if (testNames?.length) {
+        const arr = testNames.map(name => (0, utils_1.escapeQueryVal)(name));
+        const namesQry = query_1.default.field(NAME).inComparison(arr).build();
+        namesQry.length <= 3000 && qry.and(namesQry);
+    }
+    const scmRepoId = _a.getScmRepositoryId(_a._config.repoUrl);
+    if (linkedToScmRepo) {
+        qry.and(query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepoId)));
+    }
+    else {
+        qry.and(query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepoId))).not();
+    }
+    const q = qry.build();
+    const entities = await _a._octane.get(AUTOMATED_TESTS).fields('id,name,package,executable,description,test_runner').query(q).execute();
+    const arr = entities?.data ?? [];
+    const mappedTests = _a.mapEntitiesByPackageAndName(arr);
+    mappedTests.size && _a._logger.debug("Tests:");
+    mappedTests.forEach((e, k) => {
+        _a._logger.debug(k, e);
+    });
+    return mappedTests;
+};
+OctaneClient.fetchUnits = async (query) => {
+    _a._logger.debug(`Getting units (model_items) ...`);
+    const q = query.build();
+    const res = await _a._octane.get(MODEL_ITEMS).fields('id,name,description,repository_path,parent,test_runner').query(q).execute();
+    const arr = res?.data ?? [];
+    arr.forEach(u => {
+        _a._logger.debug("Unit:", u);
+    });
+    return arr;
+};
+OctaneClient.getRunnerDedicatedFolder = async (executorId) => {
+    const qry = query_1.default.field(TEST_RUNNER).equal(query_1.default.field(ID).equal(executorId))
+        .and(query_1.default.field(SUBTYPE).equal(MODEL_FOLDER))
+        .build();
+    const res = await _a._octane.get(MODEL_ITEMS).query(qry).execute();
+    return res?.data?.length ? res.data[0] : null;
+};
+OctaneClient.getGitMirrorFolder = async () => {
+    const qry = query_1.default.field(LOGICAL_NAME).equal("mbt.discovery.unit.default_folder_name").build();
+    const res = await _a._octane.get(MODEL_ITEMS).query(qry).execute();
+    return res?.data?.length ? res.data[0] : null;
+};
+OctaneClient.fetchChildFolders = async (parentFolder, nameFilters = []) => {
+    let q = query_1.default.field(PARENT).equal(query_1.default.field(ID).equal(parentFolder.id))
+        .and(query_1.default.field(SUBTYPE).equal(MODEL_FOLDER));
+    if (nameFilters?.length) {
+        q = q.and(query_1.default.field(NAME).inComparison(nameFilters));
+    }
+    const qry = q.build();
+    const res = await _a._octane.get(MODEL_ITEMS).query(qry).fields("id,name,type,subtype").execute();
+    return res?.data ?? [];
+};
+OctaneClient.createFolders = async (names, gitMirrorAutodiscoveryFolder) => {
+    if (names.size === 0)
+        return new Map();
+    _a._logger.debug(`Creating ${names.size} folders ...`);
+    const folderBodies = Array.from(names, folderName => ({
+        type: MODEL_ITEM,
+        subtype: MODEL_FOLDER,
+        name: folderName,
+        parent: {
+            id: gitMirrorAutodiscoveryFolder.id,
+            name: gitMirrorAutodiscoveryFolder.name
+        }
+    }));
+    const res = await _a._octane.create(MODEL_ITEMS, folderBodies).fields('id,name,type,subtype').execute();
+    const folders = res?.data ?? [];
+    const foldersMap = new Map(folders.map(folder => [folder.name, folder]));
+    return foldersMap;
+};
+OctaneClient.updateFolders = async (folders) => {
+    if (folders?.length) {
+        _a._logger.debug(`Updating ${folders.length} folders ...`);
+        const res = await _a._octane.update(MODEL_ITEMS, folders).execute();
+        const updatedFolders = res?.data ?? [];
+        _a._logger.debug(`Updated folders: ${updatedFolders.length}`);
+        return updatedFolders;
+    }
+    return [];
+};
+OctaneClient.createUnits = async (unitsToAdd, paramsToAdd) => {
+    _a._logger.debug(`Creating ${unitsToAdd.length} units ...`);
+    const res = await _a._octane.create(MODEL_ITEMS, unitsToAdd).fields(REPOSITORY_PATH).execute();
+    const postedUnitEntities = res?.data ?? [];
+    const unitEntities = new Map();
+    for (const unit of postedUnitEntities) {
+        if (!unit) {
+            _a._logger.warn('Null or undefined unit found');
+            continue;
+        }
+        if (unit.repository_path) {
+            if (unitEntities.has(unit.repository_path)) {
+                _a._logger.warn(`Duplicate repository_path found: ${unit.repository_path}`);
+            }
+            unitEntities.set(unit.repository_path, unit);
+        }
+        else {
+            _a._logger.warn(`Unit without repository_path found: ${unit.id}`);
+        }
+    }
+    if (unitEntities.size === 0)
+        return;
+    _a._logger.info(`Successfully added ${unitEntities.size} new units.`);
+    _a._logger.info(`Dispatching ${paramsToAdd.length} new unit parameters ...`);
+    // !!! IMPORTANT: replace parent unit entities for parameters in order to save their relations
+    for (const param of paramsToAdd) {
+        const parentUnit = param.model_item;
+        if (parentUnit.repository_path && unitEntities.has(parentUnit.repository_path)) {
+            const newParentUnit = unitEntities.get(parentUnit.repository_path);
+            param.model_item = { data: newParentUnit };
+        }
+        else {
+            _a._logger.warn(`Unit parameter ${param.name} has no model_item.`);
+        }
+    }
+    // add parameters
+    const res2 = await _a._octane.create("entity_parameters", paramsToAdd).execute();
+    const unitParams = res2?.data ?? [];
+    _a._logger.info(`Successfully added ${unitParams.length} new unit parameters.`);
+};
+OctaneClient.updateUnits = async (units) => {
+    if (!units || units.length === 0)
+        return;
+    _a._logger.debug(`Updating ${units.length} units ...`);
+    const res = await _a._octane.update(MODEL_ITEMS, units).execute();
+    const updatedUnits = res?.data ?? [];
+    _a._logger.debug(`Updated units: ${updatedUnits.length}`);
+    return updatedUnits;
+};
+OctaneClient.getScmRepositoryId = async (repoURL) => {
+    _a._logger.debug(`Getting SCM Repository with {url='${repoURL}'} ...`);
+    const scmRepoQuery = query_1.default.field('url').equal((0, utils_1.escapeQueryVal)(repoURL)).build();
+    const scmRepos = await _a._octane.get('scm_repository_roots').fields(ID).query(scmRepoQuery).execute();
+    if (!scmRepos || scmRepos.total_count === 0 || scmRepos.data.length === 0) {
+        throw new Error(`SCM Repository not found.`);
+    }
+    const scmRepoId = scmRepos.data[0].id;
+    _a._logger.debug("SCM Repository:", scmRepoId);
+    return scmRepoId;
+};
+OctaneClient.mapEntitiesByPackageAndName = (entities) => {
+    const groupedEntities = new Map();
+    for (const entity of entities) {
+        groupedEntities.set(`${entity.getStringValue("package")}#${entity.getName()}`, entity);
+    }
+    return groupedEntities;
+};
+OctaneClient.getTestingToolTypeId = (testingTool) => {
+    return `list_node.testing_tool_type.${testingTool}`;
+};
 OctaneClient.updatePluginVersion = async (instanceId) => {
     const querystring = __nccwpck_require__(3480);
     const sdk = '';
@@ -73986,6 +74199,48 @@ OctaneClient.updatePluginVersion = async (instanceId) => {
     const selfUrl = querystring.escape(_a._config.repoUrl);
     _a._logger.debug(`Updating CI Server's plugin_version to: '${_a.PLUGIN_VERSION}'`);
     await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/servers/${instanceId}/tasks?self-type=${_a.GITHUB_ACTIONS}&api-version=1&sdk-version=${sdk}&plugin-version=${pluginVersion}&self-url=${selfUrl}&client-id=${client_id}&client-server-user=`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
+};
+OctaneClient.getTestRunnerVersion = async (executorId, techPreview = false) => {
+    const headers = techPreview ? { 'ALM-OCTANE-TECH-PREVIEW': true } : undefined; //, 'ALM-OCTANE-PRIVATE': true 
+    const e = await _a._octane.executeCustomRequest(`${_a.CI_API_URL}/executors/${executorId}/version`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get, undefined, headers);
+    if (!e || e.total_count === 0 || e.data.length === 0) {
+        throw Error('Could not get the test runner version.');
+    }
+    return e.data[0];
+};
+OctaneClient.getCiJob = async (ciId, ciServer) => {
+    _a._logger.debug(`Getting job with {ci_id='${ciId}, ci_server.id='${ciServer.id}'}...`);
+    const jobQuery = query_1.default.field('ci_id')
+        .equal((0, utils_1.escapeQueryVal)(ciId))
+        .and(query_1.default.field('ci_server').equal(query_1.default.field('id').equal(ciServer.id)))
+        .build();
+    const ciJobs = await _a._octane
+        .get('ci_jobs')
+        .fields('id,ci_id,name,ci_server{name,instance_id}')
+        .query(jobQuery)
+        .execute();
+    if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
+        return undefined;
+    }
+    return ciJobs.data[0];
+};
+OctaneClient.createCiJob = async (ciJob) => {
+    _a._logger.debug(`Creating job with {ci_id='${ciJob.jobCiId}', ci_server.id='${ciJob.ciServer?.id}'}...`);
+    const ciJobToCreate = {
+        name: ciJob.name,
+        parameters: ciJob.parameters,
+        ci_id: ciJob.jobCiId,
+        ci_server: {
+            id: ciJob.ciServer?.id,
+            type: ciJob.ciServer?.type
+        },
+        branch: ciJob.branchName
+    };
+    const ciJobs = await _a._octane.create('ci_jobs', ciJobToCreate).execute();
+    if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
+        throw Error('Could not create the CI job entity.');
+    }
+    return ciJobs.data[0];
 };
 exports["default"] = OctaneClient;
 
@@ -74045,6 +74300,7 @@ try {
         octaneClientSecret: (0, core_1.getInput)('octaneClientSecret').trim(),
         githubToken: (0, core_1.getInput)('githubToken').trim(),
         serverBaseUrl: serverUrl,
+        pipelineNamePattern: (0, core_1.getInput)('pipelineNamePattern'),
         testingTool: (0, core_1.getInput)('testingToolType').toLowerCase().trim(),
         minSyncInterval: Number.parseInt((0, core_1.getInput)('minSyncInterval').trim()),
         owner: owner,
@@ -74129,8 +74385,10 @@ const ole_doc_1 = __nccwpck_require__(8796);
 const ScmChangesWrapper_1 = __importDefault(__nccwpck_require__(9787));
 const utils_1 = __nccwpck_require__(5268);
 const config_1 = __nccwpck_require__(1122);
+const DiscoveryResult_1 = __importDefault(__nccwpck_require__(1305));
 const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('Discovery');
+const _toolType = _config.testingTool === "mbt" ? ToolType_1.ToolType.MBT : ToolType_1.ToolType.UFT;
 const GUI_TEST_FILE = 'Test.tsp';
 const API_ACTIONS_FILE = "actions.xml"; //api test
 const COMPONENT_INFO = "ComponentInfo";
@@ -74166,11 +74424,10 @@ class TspParseError extends Error {
     }
 }
 class Discovery {
-    constructor(toolType, workDir) {
+    constructor(workDir) {
         this._tests = [];
         this._scmResxFiles = [];
-        _logger.info('Discovery constructor ...');
-        this._toolType = toolType;
+        _logger.debug('Discovery constructor ...');
         this._workDir = workDir;
     }
     hasChanges() {
@@ -74196,9 +74453,6 @@ class Discovery {
     }
     getDeletedScmResxFiles() {
         return this.getResxFilesByOctaneStatus(OctaneStatus_1.OctaneStatus.DELETED);
-    }
-    getupdatedScmResxFiles() {
-        return this.getResxFilesByOctaneStatus(OctaneStatus_1.OctaneStatus.MODIFIED);
     }
     getResxFilesByOctaneStatus(status) {
         return Object.freeze(this._scmResxFiles.filter(scmResxFile => scmResxFile.octaneStatus === status));
@@ -74244,26 +74498,31 @@ class Discovery {
         this._scmResxFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
     }
     async startScanning(oldCommit) {
-        _logger.info('BEGIN startScanning ...');
+        _logger.info('BEGIN Scanning ...');
         const didFullCheckout = await this.checkoutRepo();
         const newCommit = await (0, utils_1.getHeadCommitSha)(this._workDir);
+        let isFullSync = true;
         if (didFullCheckout) {
             await this.doFullDiscovery();
         }
         else {
             if (oldCommit) {
-                const affectedFiles = await ScmChangesWrapper_1.default.getScmChanges(this._toolType, this._workDir, oldCommit, newCommit);
+                const affectedFiles = await ScmChangesWrapper_1.default.getScmChanges(_toolType, this._workDir, oldCommit, newCommit);
                 await this.doSyncDiscovery(affectedFiles);
+                isFullSync = false;
             }
             else {
                 await this.doFullDiscovery();
             }
         }
-        _logger.info('END startScanning ...');
-        return newCommit;
+        _logger.info('END Scanning ...');
+        return new DiscoveryResult_1.default(newCommit, this._tests, this._scmResxFiles, isFullSync);
     }
     async doFullDiscovery() {
         await this.scanDirRecursively(this._workDir);
+        //not sure if we need this, tests and data tables might be already sorted
+        //this.sortTests();
+        //this.sortDataTables();
     }
     async doSyncDiscovery(affectedFiles) {
         await this.doChangeSetDetection(affectedFiles);
@@ -74282,10 +74541,10 @@ class Discovery {
             if ((0, utils_1.isTestMainFile)(affectedFileFullPath)) {
                 await this.handleTestChanges(affectedFileWrapper, affectedFileFullPath);
             }
-            else if (this._toolType === ToolType_1.ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
+            else if (_toolType === ToolType_1.ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
                 await this.handleDataTableChanges(affectedFileWrapper, affectedFileFullPath);
             }
-            else if (this._toolType === ToolType_1.ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
+            else if (_toolType === ToolType_1.ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
                 await this.handleActionChanges(affectedFileWrapper, affectedFileFullPath);
             }
         }
@@ -74380,7 +74639,7 @@ class Discovery {
                 }
             }
         }
-        else if (!(this._toolType === ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
+        else if (!(_toolType === ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
             const automTest = await this.createAutomatedTestEx(subDirFullPath, testType);
             this._tests.push(automTest);
         }
@@ -74412,7 +74671,7 @@ class Discovery {
         descr = this.convertToHtmlFormatIfRequired(descr);
         test.description = descr ?? "";
         // discover actions only for mbt toolType and gui tests
-        if (this._toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.GUI) {
+        if (_toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.GUI) {
             const actionPathPrefix = this.getActionPathPrefix(test, false);
             const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, test.name, subDirFullPath);
             test.actions = actions;
@@ -74725,13 +74984,7 @@ class Discovery {
     }
     // in case a test was moved and we need the action path prefix before the move then set orgPath to true
     getActionPathPrefix(test, orgPath) {
-        return this.getTestPathPrefix(test, orgPath);
-    }
-    // constructs a test path that contains only the test package and name
-    getTestPathPrefix(test, orgPath) {
-        const testPackage = (orgPath ? test.oldPackageName : test.packageName) ?? "";
-        const testName = orgPath ? test.oldName : test.name;
-        return (testPackage.trim() == "" ? "" : testPackage + "\\") + testName;
+        return (0, utils_1.getTestPathPrefix)(test, orgPath);
     }
     isDataTableFile(file) {
         const ext = path.extname(file).toLowerCase();
@@ -74853,6 +75106,100 @@ class Discovery {
     }
 }
 exports["default"] = Discovery;
+
+
+/***/ }),
+
+/***/ 1305:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const logger_1 = __nccwpck_require__(7893);
+const OctaneStatus_1 = __nccwpck_require__(2828);
+const _logger = new logger_1.Logger('Discovery');
+class DiscoveryResult {
+    constructor(newCommit, tests, scmResxFiles, isFullSync) {
+        this._hasChanges = false;
+        _logger.debug('DiscoveryResult constructor ...');
+        this._newCommit = newCommit;
+        this._isFullSync = isFullSync;
+        this._tests = Object.freeze(tests);
+        this._scmResxFiles = Object.freeze(scmResxFiles);
+        this._hasChanges = tests.length > 0 || scmResxFiles.length > 0;
+        const { newTests, updatedTests, deletedTests } = this.categorizeTests(tests);
+        this._newTests = Object.freeze(newTests);
+        this._updatedTests = Object.freeze(updatedTests);
+        this._deletedTests = Object.freeze(deletedTests);
+        const { newScmResxFiles, updatedScmResxFiles, deletedScmResxFiles } = this.categorizeScmResxFiles(scmResxFiles);
+        this._newScmResxFiles = Object.freeze(newScmResxFiles);
+        this._updatedScmResxFiles = Object.freeze(updatedScmResxFiles);
+        this._deletedScmResxFiles = Object.freeze(deletedScmResxFiles);
+    }
+    isFullSync() {
+        return this._isFullSync;
+    }
+    getNewCommit() {
+        return this._newCommit;
+    }
+    hasChanges() {
+        return this._hasChanges;
+    }
+    getAllTests() {
+        return this._tests;
+    }
+    getNewTests() {
+        return this._newTests;
+    }
+    getUpdatedTests() {
+        return this._updatedTests;
+    }
+    getDeletedTests() {
+        return this._deletedTests;
+    }
+    getNewScmResxFiles() {
+        return this._newScmResxFiles;
+    }
+    getDeletedScmResxFiles() {
+        return this._deletedScmResxFiles;
+    }
+    getupdatedScmResxFiles() {
+        return this._updatedScmResxFiles;
+    }
+    getScmResxFiles() {
+        return this._scmResxFiles;
+    }
+    categorizeTests(tests) {
+        return tests.reduce((acc, test) => {
+            if (test.octaneStatus === OctaneStatus_1.OctaneStatus.NEW) {
+                acc.newTests.push(test);
+            }
+            else if (test.octaneStatus === OctaneStatus_1.OctaneStatus.MODIFIED) {
+                acc.updatedTests.push(test);
+            }
+            else if (test.octaneStatus === OctaneStatus_1.OctaneStatus.DELETED) {
+                acc.deletedTests.push(test);
+            }
+            return acc;
+        }, { newTests: [], updatedTests: [], deletedTests: [] });
+    }
+    categorizeScmResxFiles(scmResxFiles) {
+        return scmResxFiles.reduce((acc, file) => {
+            if (file.octaneStatus === OctaneStatus_1.OctaneStatus.NEW) {
+                acc.newScmResxFiles.push(file);
+            }
+            else if (file.octaneStatus === OctaneStatus_1.OctaneStatus.MODIFIED) {
+                acc.updatedScmResxFiles.push(file);
+            }
+            else if (file.octaneStatus === OctaneStatus_1.OctaneStatus.DELETED) {
+                acc.deletedScmResxFiles.push(file);
+            }
+            return acc;
+        }, { newScmResxFiles: [], updatedScmResxFiles: [], deletedScmResxFiles: [] });
+    }
+}
+exports["default"] = DiscoveryResult;
 
 
 /***/ }),
@@ -75040,6 +75387,7 @@ async function getDiffEntries(toolType, dir, oldCommit, newCommit) {
     }) ?? [];
     if (results.length === 0) {
         console.warn('No differences found.');
+        return [];
     }
     // Post-process to detect renames
     const deletes = [];
@@ -75236,6 +75584,119 @@ UftoTestType.None = new UftoTestType("none");
 
 /***/ }),
 
+/***/ 9129:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.EntityConstants = void 0;
+class EntityConstants {
+}
+exports.EntityConstants = EntityConstants;
+EntityConstants.Errors = {
+    DUPLICATE_ERROR_CODE: 'platform.duplicate_entity_error',
+};
+EntityConstants.Base = {
+    ID: 'id',
+    NAME: 'name',
+    LOGICAL_NAME: 'logical_name',
+    DESCRIPTION: 'description',
+    TYPE: 'type',
+    SUBTYPE: 'subtype',
+    COLLECTION_DATA: 'data',
+    COLLECTION_TOTAL_COUNT: 'total_count'
+};
+EntityConstants.AutomatedTest = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'automated_tests',
+    ENTITY_NAME: 'automated_test',
+    TEST_RUNNER: 'test_runner',
+    SCM_REPOSITORY: 'scm_repository',
+    TESTING_TOOL_TYPE: 'testing_tool_type',
+    TEST_TYPE: 'test_type',
+    FRAMEWORK: 'framework',
+    PACKAGE: 'package',
+    CLASS_NAME: 'class_name',
+    EXECUTABLE: 'executable'
+};
+EntityConstants.MbtUnit = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'model_items',
+    ENTITY_NAME: 'model_item',
+    ENTITY_SUBTYPE: 'unit',
+    PARENT: 'parent',
+    AUTOMATION_STATUS: 'automation_status',
+    REPOSITORY_PATH: 'repository_path',
+    TESTING_TOOL_TYPE: 'testing_tool_type',
+    TEST_RUNNER: 'test_runner',
+    SCM_REPOSITORY: 'scm_repository'
+};
+EntityConstants.MbtUnitParameter = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'entity_parameters',
+    ENTITY_NAME: 'entity_parameter',
+    ENTITY_SUBTYPE: 'unit_parameter',
+    MODEL_ITEM: 'model_item',
+    TYPE: 'parameter_type',
+    DEFAULT_VALUE: 'value'
+};
+EntityConstants.ModelFolder = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'model_items',
+    ENTITY_NAME: 'model_item',
+    ENTITY_SUBTYPE: 'model_folder',
+    PARENT: 'parent',
+    TEST_RUNNER: 'test_runner',
+};
+EntityConstants.ScmResourceFile = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'scm_resource_files',
+    ENTITY_NAME: 'scm_resource_file',
+    RELATIVE_PATH: 'relative_path',
+    SCM_REPOSITORY: 'scm_repository',
+};
+EntityConstants.ScmRepository = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'scm_repositories',
+    ENTITY_NAME: 'scm_repository',
+};
+EntityConstants.Executors = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'executors',
+    ENTITY_NAME: 'executor',
+    SYNC_STATUS_PASSED: '{"type": "list_node", "id": "list_node.sync_status.success"}',
+    SYNC_STATUS_FAILED: '{"type": "list_node", "id": "list_node.sync_status.failed"}',
+};
+EntityConstants.Artifact = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'fte_artifacts',
+    ENTITY_NAME: 'fte_artifact',
+    FILE_NAME: 'file_name',
+    SIZE: 'size',
+    FTE_ID: 'fte_id',
+    UPLOAD_BY: 'upload_by',
+    UPLOAD_DATE: 'upload_date',
+    CLOUD_TEST_RUNNER: 'cloud_test_runner',
+    VERSION: 'version',
+};
+EntityConstants.ArtifactUploadPhase = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'fte_artifact_upload_phases',
+    ENTITY_NAME: 'fte_artifact_upload_phase',
+    PHASE_NAME: 'upload_phase',
+    ERROR_MESSAGE: 'error_message',
+    START_TIME: 'start_time',
+    FTE_ARTIFACT_ID: 'fte_artifact_id',
+};
+EntityConstants.ScmRepositoryRoot = {
+    ...EntityConstants.Base,
+    COLLECTION_NAME: 'scm_repository_roots',
+};
+
+
+/***/ }),
+
 /***/ 7751:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -75282,9 +75743,9 @@ const utils_1 = __nccwpck_require__(5268);
 const github_1 = __nccwpck_require__(3228);
 const executorService_1 = __nccwpck_require__(4511);
 const Discovery_1 = __importDefault(__nccwpck_require__(6672));
-const ToolType_1 = __nccwpck_require__(2744);
 const UftoParamDirection_1 = __nccwpck_require__(2410);
 const OctaneStatus_1 = __nccwpck_require__(2828);
+const ciJobService_1 = __nccwpck_require__(9569);
 const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('eventHandler');
 const handleCurrentEvent = async () => {
@@ -75309,9 +75770,8 @@ const handleCurrentEvent = async () => {
     _logger.info(`Current repository URL: ${_config.repoUrl}`);
     const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
     _logger.info(`Working directory: ${workDir}`);
-    const toolType = (_config.testingTool === "mbt") ? ToolType_1.ToolType.MBT : ToolType_1.ToolType.UFT;
-    _logger.info(`Testing tool type: ${toolType}`);
-    const discovery = new Discovery_1.default(toolType, workDir);
+    _logger.info(`Testing tool type: ${_config.testingTool.toUpperCase()}`);
+    const discovery = new Discovery_1.default(workDir);
     switch (eventType) {
         case "workflow_run" /* ActionsEventType.WORKFLOW_RUN */:
         case "push" /* ActionsEventType.PUSH */:
@@ -75325,9 +75785,9 @@ const handleCurrentEvent = async () => {
                     return;
                 }
             }
-            const newCommit = await discovery.startScanning(oldCommit);
-            const tests = discovery.getTests();
-            const scmResxFiles = discovery.getScmResxFiles();
+            const discoveryRes = await discovery.startScanning(oldCommit);
+            const tests = discoveryRes.getAllTests();
+            const scmResxFiles = discoveryRes.getScmResxFiles();
             if (_logger.isDebugEnabled()) {
                 console.log(`Tests: ${tests.length}`);
                 for (const t of tests) {
@@ -75364,7 +75824,8 @@ const handleCurrentEvent = async () => {
                 }
             }
             // TODO sync the tests with Octane
-            await doTestSync();
+            await doTestSync(discoveryRes);
+            const newCommit = discoveryRes.getNewCommit();
             if (newCommit !== oldCommit) {
                 await (0, utils_1.saveSyncedCommit)(newCommit);
             }
@@ -75408,13 +75869,26 @@ const isMinSyncIntervalElapsed = async (minSyncInterval) => {
     const timeDiffSeconds = Math.floor((currentTimestamp - lastSyncedTimestamp) / 1000);
     return timeDiffSeconds > minSyncInterval;
 };
-const doTestSync = async () => {
-    const ciFteServer = await octaneClient_1.default.getCiServerByType("fte_cloud");
+const doTestSync = async (discoveryRes) => {
+    //const ciFteServer = await OctaneClient.getCiServerByType("fte_cloud");
     const ciServerInstanceId = getCiServerInstanceId();
     const ciServerName = await getCiServerName();
-    const ciServer = await octaneClient_1.default.getOrCreateCiServer(ciServerInstanceId, ciServerName, _config.repoUrl);
-    const ex = await (0, executorService_1.getOrCreateExecutor)(getExecutorName(), _config.testingTool, ciServer.id);
-    //TODO create Cloud Runner (executor)
+    const configParameters = [];
+    const workflow = "Debug GitHub Action"; // TODO remove hardcoded value
+    const workflowFileName = "gha-ft-integration.yml"; // TODO remove hardcoded value
+    const branchName = "main"; // event.workflow_run?.head_branch;
+    const executorCiId = (0, executorService_1.buildExecutorCiId)(_config.owner, _config.repo, workflowFileName, branchName);
+    const executorName = (0, executorService_1.buildExecutorName)(_config.pipelineNamePattern, _config.owner, _config.repo, workflow, workflowFileName);
+    const ciServer = await octaneClient_1.default.getOrCreateCiServer(ciServerInstanceId, ciServerName);
+    const ciJob = await (0, ciJobService_1.getOrCreateCiJob)(executorName, executorCiId, ciServer, branchName, configParameters);
+    _logger.debug(`Executor job: id: ${ciJob.id}, name: ${ciJob.name}, ci_id: ${ciJob.ci_id}`);
+    //const tr = await getOrCreateExecutor(executorName, ciJob.id, _config.testingTool, ciServer);
+    const tr = await octaneClient_1.default.createTestRunner(ciServer.id, Number(ciJob.id));
+    _logger.debug(`Test runner: ${tr.id}, name: ${tr.name}, subtype: ${tr.subtype}`);
+    //const x = await fetchTestsFromOctane(discoveryResult.getAllTests());
+    const executorId = tr.id;
+    //await mbtPrepDiscoveryRes4Sync(discoveryRes);
+    //await dispatchDiscoveryResults(executorId, discoveryRes);
 };
 
 
@@ -75574,6 +76048,141 @@ const getRunResult = (conclusion) => {
 
 /***/ }),
 
+/***/ 9569:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+/*
+ * Copyright 2016-2024 Open Text.
+ *
+ * The only warranties for products and services of Open Text and
+ * its affiliates and licensors (�Open Text�) are as may be set forth
+ * in the express warranty statements accompanying such products and services.
+ * Nothing herein should be construed as constituting an additional warranty.
+ * Open Text shall not be liable for technical or editorial errors or
+ * omissions contained herein. The information contained herein is subject
+ * to change without notice.
+ *
+ * Except as specifically indicated otherwise, this document contains
+ * confidential information and a valid license is required for possession,
+ * use or copying. If this work is provided to the U.S. Government,
+ * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
+ * Computer Software Documentation, and Technical Data for Commercial Items are
+ * licensed to the U.S. Government under vendor's standard commercial license.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getOrCreateCiJob = exports.getJobByCiId = void 0;
+const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
+/*const getAllJobsByPipeline = async (pipelineId: string): Promise<CiJob[]> => {
+  return await OctaneClient.getAllJobsByPipeline(pipelineId);
+};
+*/
+const getJobByCiId = async (ciId, ciServer) => {
+    const ciJob = await octaneClient_1.default.getCiJob(ciId, ciServer);
+    if (!ciJob) {
+        throw Error(`Could not find job with {ci_id='${ciId}'}.`);
+    }
+    return ciJob;
+};
+exports.getJobByCiId = getJobByCiId;
+const getOrCreateCiJob = async (name, ciId, ciServer, branchName, parameters) => {
+    const ciJob = await octaneClient_1.default.getCiJob(ciId, ciServer);
+    if (ciJob) {
+        return ciJob;
+    }
+    return await octaneClient_1.default.createCiJob({
+        name: name,
+        jobCiId: ciId,
+        ciServer: {
+            id: ciServer.id,
+            type: 'ci_server'
+        },
+        branchName: branchName,
+        parameters: parameters
+    });
+};
+exports.getOrCreateCiJob = getOrCreateCiJob;
+/*const updateJobsCiIdIfNeeded = async (
+  jobs: CiJob[],
+  ciIdPrefix: string,
+  ciServer: CiServer,
+  oldPipelineName: string,
+  newPipelineName: string
+): Promise<void> => {
+  const jobsToUpdate: CiJobBody[] = [];
+  jobs.forEach((ciJob: CiJob) => {
+    if (checkIfCiIdStartsWithPrefix(ciJob, ciIdPrefix)) {
+      if (ciJob.name === oldPipelineName) {
+        jobsToUpdate.push({
+          jobId: ciJob.id,
+          name: newPipelineName,
+          jobCiId: `${ciIdPrefix}`
+        });
+      } else {
+        jobsToUpdate.push({
+          jobId: ciJob.id,
+          name: ciJob.name,
+          jobCiId: `${ciIdPrefix}/${ciJob.name}`
+        });
+      }
+    }
+  });
+
+  if (jobsToUpdate.length > 0) {
+    await OctaneClient.updateCiJobs(jobsToUpdate, ciServer.id, ciServer.id);
+  }
+};*/
+/*const updateJobsCiServerIfNeeded = async (
+  jobs: CiJob[],
+  oldCiServerId: string,
+  newCiServerId: string
+): Promise<void> => {
+  if (!newCiServerId) {
+    return;
+  }
+
+  const jobsToUpdate: CiJobBody[] = [];
+  if (checkIfCiServerIdsMatch(oldCiServerId, newCiServerId)) {
+    jobs.forEach((ciJob: CiJob) => {
+      jobsToUpdate.push({
+        jobId: ciJob.id,
+        name: ciJob.name,
+        jobCiId: ciJob.ci_id
+      });
+    });
+  }
+
+  if (jobsToUpdate.length > 0) {
+    await OctaneClient.updateCiJobs(jobsToUpdate, oldCiServerId, newCiServerId);
+  }
+};*/
+const checkIfCiIdStartsWithPrefix = (ciJob, ciIdPrefix) => {
+    if (!ciJob.ci_id || !ciJob.name) {
+        return false;
+    }
+    return !ciJob.ci_id.startsWith(ciIdPrefix);
+};
+const checkIfCiServerIdsMatch = (oldCiServerId, newCiServerId) => {
+    return oldCiServerId !== newCiServerId;
+};
+
+
+/***/ }),
+
 /***/ 4511:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -75613,32 +76222,45 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.sendExecutorFinishEvent = exports.sendExecutorStartEvent = exports.buildExecutorCiId = exports.buildExecutorName = exports.getOrCreateExecutor = exports.getExecutor = void 0;
 const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
+const config_1 = __nccwpck_require__(1122);
 const logger_1 = __nccwpck_require__(7893);
 const ciEventsService_1 = __nccwpck_require__(39);
+const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('executorService');
-const getExecutor = async (ciServerId, name) => {
-    let executors = await octaneClient_1.default.getExecutors(ciServerId, name);
+const getExecutor = async (ciServerId, name, subType) => {
+    let executors = await octaneClient_1.default.getExecutors(ciServerId, name, subType);
     if (executors.length === 0) {
         return null;
     }
     return executors[0];
 };
 exports.getExecutor = getExecutor;
-const getOrCreateExecutor = async (name, framework, ciServerId) => {
-    const executor = await getExecutor(ciServerId, name);
+const getOrCreateExecutor = async (name, ciJobId, framework, ciServer) => {
+    const subType = "test_runner";
+    const executor = await getExecutor(ciServer.id, name, subType);
     if (executor) {
         return executor;
     }
+    if (!ciServer.is_connected) {
+        _logger.warn(`CI server ${ciServer.instance_id} is not connected. Create executor action might fail ...`);
+    }
+    //scm_url: _config.repoUrl,
+    //scm_type: 2, // GIT
     return await octaneClient_1.default.createExecutor({
         name: name,
-        subtype: 'test_runner',
+        subtype: subType,
+        scm_repository: { id: 1004, "type": "scm_repository" },
         framework: {
             id: getFrameworkId(framework),
             type: 'list_node'
         },
         ci_server: {
-            id: ciServerId,
+            id: ciServer.id,
             type: 'ci_server'
+        },
+        ci_job: {
+            id: ciJobId,
+            type: 'ci_job'
         }
     });
 };
@@ -75875,7 +76497,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.sleep = exports.isVersionGreaterOrEqual = exports.extractWorkflowFileName = void 0;
+exports.extractActionNameFromActionPath = exports.extractActionLogicalNameFromActionPath = exports.extractScmPathFromActionPath = exports.extractScmTestPath = exports.getTestPathPrefix = exports.escapeQueryVal = exports.sleep = exports.isVersionGreaterOrEqual = exports.extractWorkflowFileName = void 0;
 exports.getHeadCommitSha = getHeadCommitSha;
 exports.isBlank = isBlank;
 exports.isTestMainFile = isTestMainFile;
@@ -76011,6 +76633,63 @@ const sleep = async (milis) => {
     });
 };
 exports.sleep = sleep;
+const escapeQueryVal = (q) => {
+    return (q && q.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'));
+};
+exports.escapeQueryVal = escapeQueryVal;
+const getTestPathPrefix = (test, orgPath) => {
+    const testPackage = orgPath ? test.oldPackageName : test.packageName;
+    const testName = orgPath ? test.oldName : test.name;
+    return `${testPackage ? `${testPackage}\\` : ''}${testName}`;
+};
+exports.getTestPathPrefix = getTestPathPrefix;
+// a valid path is of the form <test package>\<test name>\<action name>:<action logical name | action name>. an invalid
+// form can be caused if a user manually entered a scm path in-correctly
+// this method extracts the test path from the repository path. if not valid returns null
+const extractScmTestPath = (scmPath) => {
+    scmPath = extractScmPathFromActionPath(scmPath);
+    const index = scmPath.lastIndexOf('\\');
+    if (index === -1) {
+        return null;
+    }
+    else {
+        const scmTestPath = scmPath.substring(0, index);
+        const actionNumber = scmPath.substring(index + 1, scmPath.length - 1);
+        // the last part of the test path should contain the action name like "action10"
+        if (actionNumber.toLowerCase().startsWith("action")) {
+            return scmTestPath;
+        }
+        else {
+            return null;
+        }
+    }
+};
+exports.extractScmTestPath = extractScmTestPath;
+const extractScmPathFromActionPath = (repositoryPath) => {
+    const index = repositoryPath.indexOf(":");
+    if (index === -1) {
+        return repositoryPath;
+    }
+    else {
+        return repositoryPath.substring(0, index).toLowerCase();
+    }
+};
+exports.extractScmPathFromActionPath = extractScmPathFromActionPath;
+// the action path is in the form of <test package>\<test name>\<action name>:<action logical name | action name>.
+// this method extracts the <action logical name>
+const extractActionLogicalNameFromActionPath = (repositoryPath) => {
+    const parts = repositoryPath.split(":");
+    return parts.length == 1 ? "" : parts[1];
+};
+exports.extractActionLogicalNameFromActionPath = extractActionLogicalNameFromActionPath;
+// the action path is in the form of <test package>\<test name>\<action name>:<action logical name | action name>.
+// this method extracts the <action name> as set by the UFTOne: Action1 Action2 etc.
+const extractActionNameFromActionPath = (repositoryPath) => {
+    const parts = repositoryPath.split(":");
+    const repoPathParts = parts[0].split("\\");
+    return repoPathParts[repoPathParts.length - 1]; // the last part of the repository path without logical name is the action name
+};
+exports.extractActionNameFromActionPath = extractActionNameFromActionPath;
 
 
 /***/ }),

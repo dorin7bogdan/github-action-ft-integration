@@ -33,6 +33,7 @@ import { UftoTestType } from '../dto/ft/UftoTestType';
 import { context } from '@actions/github';
 import * as git from 'isomorphic-git';
 import { Logger } from './logger';
+import AutomatedTest from '../dto/ft/AutomatedTest';
 
 // File to store the string (hidden file to avoid cluttering the repo)
 const SYNCED_COMMIT_SHA = path.join(process.cwd(), '.synced-commit-sha');
@@ -168,4 +169,60 @@ const sleep = async (milis: number): Promise<void> => {
   });
 };
 
-export { getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, extractWorkflowFileName, isVersionGreaterOrEqual, sleep };
+const escapeQueryVal = (q: string): string => {
+  return (
+    q && q.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+  );
+}
+
+const getTestPathPrefix = (test: AutomatedTest, orgPath: boolean): string => {
+  const testPackage = orgPath ? test.oldPackageName : test.packageName;
+  const testName = orgPath ? test.oldName : test.name;
+  return `${testPackage ? `${testPackage}\\` : ''}${testName}`;
+}
+
+// a valid path is of the form <test package>\<test name>\<action name>:<action logical name | action name>. an invalid
+// form can be caused if a user manually entered a scm path in-correctly
+// this method extracts the test path from the repository path. if not valid returns null
+const extractScmTestPath = (scmPath: string): string | null => {
+  scmPath = extractScmPathFromActionPath(scmPath);
+  const index = scmPath.lastIndexOf('\\');
+  if (index === -1) {
+    return null;
+  } else {
+    const scmTestPath = scmPath.substring(0, index);
+    const actionNumber = scmPath.substring(index + 1, scmPath.length - 1);
+    // the last part of the test path should contain the action name like "action10"
+    if (actionNumber.toLowerCase().startsWith("action")) {
+      return scmTestPath;
+    } else {
+      return null;
+    }
+  }
+}
+
+const extractScmPathFromActionPath = (repositoryPath: string): string => {
+  const index = repositoryPath.indexOf(":");
+  if (index === -1) {
+    return repositoryPath;
+  } else {
+    return repositoryPath.substring(0, index).toLowerCase();
+  }
+}
+
+// the action path is in the form of <test package>\<test name>\<action name>:<action logical name | action name>.
+// this method extracts the <action logical name>
+const extractActionLogicalNameFromActionPath = (repositoryPath: string) => {
+  const parts = repositoryPath.split(":");
+  return parts.length == 1 ? "" : parts[1];
+}
+
+// the action path is in the form of <test package>\<test name>\<action name>:<action logical name | action name>.
+// this method extracts the <action name> as set by the UFTOne: Action1 Action2 etc.
+const extractActionNameFromActionPath = (repositoryPath: string): string => {
+  const parts = repositoryPath.split(":");
+  const repoPathParts = parts[0].split("\\");
+  return repoPathParts[repoPathParts.length - 1]; // the last part of the repository path without logical name is the action name
+}
+
+export { getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, extractWorkflowFileName, isVersionGreaterOrEqual, sleep, escapeQueryVal, getTestPathPrefix, extractScmTestPath, extractScmPathFromActionPath, extractActionLogicalNameFromActionPath, extractActionNameFromActionPath };
