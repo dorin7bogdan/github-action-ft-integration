@@ -46,45 +46,14 @@ import { generateRootExecutorEvent } from './ciEventsService';
 const _config = getConfig();
 const _logger: Logger = new Logger('executorService');
 
-const getExecutor = async (ciServerId: number, name: string, subType: string): Promise<CiExecutor | null> => {
-  let executors = await OctaneClient.getExecutors(ciServerId, name, subType);
+const getOrCreateTestRunner = async (name: string, ciServerId: number, ciJob: CiJob): Promise<CiExecutor> => {
+  const subType = "uft_test_runner";
+  const entry = await OctaneClient.getExecutor(ciServerId, name, subType);
 
-  if (executors.length === 0) {
-    return null;
+  if (entry) {
+    return entry;
   }
-  return executors[0];
-};
-
-const getOrCreateExecutor = async (name: string, ciJobId: string, framework: string, ciServer: CiServer): Promise<CiExecutor> => {
-  const subType = "test_runner";
-  const executor = await getExecutor(ciServer.id, name, subType);
-
-  if (executor) {
-    return executor;
-  }
-  if (!ciServer.is_connected) {
-    _logger.warn(`CI server ${ciServer.instance_id} is not connected. Create executor action might fail ...`);
-  }
-
-  //scm_url: _config.repoUrl,
-  //scm_type: 2, // GIT
-  return await OctaneClient.createExecutor({
-    name: name,
-    subtype: subType,
-    scm_repository: { id: 1004, "type": "scm_repository" },
-    framework: {
-      id: getFrameworkId(framework),
-      type: 'list_node'
-    },
-    ci_server: {
-      id: ciServer.id,
-      type: 'ci_server'
-    },
-    ci_job: {
-      id: ciJobId,
-        type: 'ci_job'
-    }
-  });
+  return await OctaneClient.createMbtTestRunner(name, ciServerId, ciJob);
 };
 
 const sendExecutorStartEvent = async (
@@ -166,17 +135,6 @@ const buildExecutorName = (
     .replace('${workflow_file_name}', workflowFileName);
 };
 
-const buildExecutorCiId = (
-  repositoryOwner: string,
-  repositoryName: string,
-  workflowFileName: string,
-  branchName?: string
-): string => {
-  return branchName
-    ? `${repositoryOwner}/${repositoryName}/${workflowFileName}/executor/${branchName}`
-    : `${repositoryOwner}/${repositoryName}/${workflowFileName}/executor`;
-};
-
 const getFrameworkId = (framework: string): string => {
   let frameworkId;
 
@@ -191,10 +149,8 @@ const getFrameworkId = (framework: string): string => {
 };
 
 export {
-  getExecutor,
-  getOrCreateExecutor,
+  getOrCreateTestRunner,
   buildExecutorName,
-  buildExecutorCiId,
   sendExecutorStartEvent,
   sendExecutorFinishEvent
 };

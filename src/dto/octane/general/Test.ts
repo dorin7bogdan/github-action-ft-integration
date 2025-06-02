@@ -2,7 +2,7 @@
  * Copyright 2016-2025 Open Text.
  *
  * The only warranties for products and services of Open Text and
- * its affiliates and licensors (‚ÄúOpen Text‚Äù) are as may be set forth
+ * its affiliates and licensors (ìOpen Textî) are as may be set forth
  * in the express warranty statements accompanying such products and services.
  * Nothing herein should be construed as constituting an additional warranty.
  * Open Text shall not be liable for technical or editorial errors or
@@ -26,13 +26,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import CiExecutor from "./CiExecutor";
 
-export default interface CiServerBody {
-  id?: number;
-  name?: string;
-  type?: string;
-  server_type?: string;
-  instance_id?: string;
-  url?: string;
-  plugin_version?: string;
+export default interface Test {
+  id: number;
+  type: string; // "test_automated" | "test_manual" | "test_performance" | "test_security"
+  name: string;
+  executable: boolean;
+  package?: string | null;
+  test_runner?: CiExecutor | null; // Reference to CiExecutor
+  description?: string | null;
 }

@@ -73863,8 +73863,7 @@ class OctaneClient {
         this._logger.debug(`Getting units (model_items) ...`);
         const qry1 = query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepositoryId));
         const qry2 = folderNames.map(folderName => query_1.default.field(PARENT).equal(query_1.default.field(NAME).equal(folderName))).reduce((acc, curr) => acc.or(curr), query_1.default.NULL);
-        const q = qry1.and(qry2).build();
-        return this.fetchUnits(q);
+        return this.fetchUnits(qry1.and(qry2));
     }
 }
 _a = OctaneClient;
@@ -73878,10 +73877,7 @@ OctaneClient._octane = new alm_octane_js_rest_sdk_1.Octane({
     workspace: _a._config.octaneWorkspace,
     user: _a._config.octaneClientId,
     password: _a._config.octaneClientSecret,
-    headers: {
-        'ALM-OCTANE-TECH-PREVIEW': true,
-        'ALM-OCTANE-PRIVATE': true
-    }
+    headers: { 'HPECLIENTTYPE': 'HPE_CI_CLIENT' }
 });
 OctaneClient.ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/workspaces/${_a._config.octaneWorkspace}/analytics/ci`;
 OctaneClient.ANALYTICS_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${_a._config.octaneSharedSpace}/analytics/ci`;
@@ -73902,19 +73898,16 @@ OctaneClient.sendEvents = async (events, instanceId, url) => {
     };
     await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/events`, alm_octane_js_rest_sdk_1.Octane.operationTypes.update, eventsToSend);
 };
-OctaneClient.sendTestResult = async (testResult, instanceId, jobId, buildId) => {
-    _a._logger.debug(`Sending test results for job run with {jobId='${jobId}, buildId='${buildId}', instanceId='${instanceId}'}`);
-    await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/test-results?skip-errors=true&instance-id=${instanceId}&job-ci-id=${jobId}&build-ci-id=${buildId}`, alm_octane_js_rest_sdk_1.Octane.operationTypes.create, testResult, { 'Content-Type': 'application/xml' });
-};
 OctaneClient.createCIServer = async (name, instanceId, url) => {
     _a._logger.debug(`Creating CI server with {name='${name}', instanceId='${instanceId}'}...`);
-    const res = await _a._octane.create(CI_SERVERS, {
-        name,
+    const body = {
+        name: name,
         instance_id: instanceId,
         server_type: _a.GITHUB_ACTIONS,
         url: url
-    }).fields('id,instance_id,name,server_type,url,plugin_version')
-        .execute();
+    };
+    const fldNames = ['id', 'name', 'instance_id', 'plugin_version', 'url', 'is_connected', 'server_type'];
+    const res = await _a._octane.create(CI_SERVERS, body).fields(...fldNames).execute();
     return res.data[0];
 };
 OctaneClient.getOrCreateCiServer = async (instanceId, name) => {
@@ -73923,7 +73916,8 @@ OctaneClient.getOrCreateCiServer = async (instanceId, name) => {
         .and(query_1.default.field(SERVER_TYPE).equal(_a.GITHUB_ACTIONS))
         .and(query_1.default.field('url').equal((0, utils_1.escapeQueryVal)(_a._config.repoUrl)))
         .build();
-    const res = await _a._octane.get(CI_SERVERS).fields('instance_id,plugin_version,url,is_connected').query(ciServerQuery).execute();
+    const fldNames = ['instance_id', 'plugin_version', 'url', 'is_connected'];
+    const res = await _a._octane.get(CI_SERVERS).fields(...fldNames).query(ciServerQuery).limit(1).execute();
     let ciServer;
     if (res?.total_count && res.data?.length) {
         ciServer = res.data[0];
@@ -73936,88 +73930,76 @@ OctaneClient.getOrCreateCiServer = async (instanceId, name) => {
     _a._logger.debug("CI Server:", ciServer);
     return ciServer;
 };
-OctaneClient.getCiServerByType = async (serverType) => {
+OctaneClient.getCiServersByType = async (serverType) => {
     _a._logger.debug(`Getting default CI server ...`);
     const ciServerQuery = query_1.default.field(SERVER_TYPE).equal(serverType).build();
-    const ciServers = await _a._octane.get(CI_SERVERS).fields('id,instance_id,plugin_version').query(ciServerQuery).execute();
-    if (!ciServers || ciServers.total_count === 0 || ciServers.data.length === 0) {
-        throw new Error(`Default CI Server not found.`);
+    const fldNames = ['id', 'instance_id', 'plugin_version'];
+    const res = await _a._octane.get(CI_SERVERS).fields(...fldNames).query(ciServerQuery).execute();
+    if (!res || res.total_count === 0 || res.data.length === 0) {
+        return [];
     }
-    const ciServer = ciServers.data[0];
-    _a._logger.debug("CI Server:", ciServer);
-    return ciServer;
+    const entries = res.data;
+    entries.forEach((e) => {
+        _a._logger.debug("CI Server:", e);
+    });
+    return entries;
 };
-OctaneClient.getExecutors = async (ciServerId, name, subType) => {
-    _a._logger.debug(`Getting executors with ciServerId=${ciServerId} and name=${name} ...`);
-    const executorsQuery = query_1.default.field(CI_SERVER).equal(query_1.default.field(ID).equal(ciServerId))
+OctaneClient.getExecutor = async (ciServerId, name, subType) => {
+    _a._logger.debug(`Getting executor with ciServerId=${ciServerId} and name=${name} ...`);
+    const q = query_1.default.field(CI_SERVER).equal(query_1.default.field(ID).equal(ciServerId))
         .and(query_1.default.field(NAME).equal((0, utils_1.escapeQueryVal)(name)))
         .and(query_1.default.field(SUBTYPE).equal(subType))
         .build();
     //name,framework,test_runner_parameters,last_successful_sync,subtype,id,last_sync,next_sync,message,sync_status,ci_server{id},scm_repository{repository}
-    const executors = await _a._octane.get('executors').fields('id,name,subtype,framework').query(executorsQuery).execute();
-    const arr = executors?.data ?? [];
-    arr.forEach((e) => {
-        _a._logger.debug("Test Runner:", e);
-    });
-    return arr;
-};
-OctaneClient.createExecutor = async (body) => {
-    try {
-        _a._logger.debug(`Creating executor with ${JSON.stringify(body)}...`);
-        const e = await _a._octane.create('executors', body).execute();
-        if (!e || e.total_count === 0 || e.data.length === 0) {
-            throw Error('Could not create the test runner entity.');
-        }
-        const exec = e.data[0];
-        _a._logger.debug("Test Runner:", exec);
-        return exec;
+    const fldNames = ['id', 'name', 'subtype', 'framework', 'scm_repository', 'ci_job', 'ci_server'];
+    const res = await _a._octane.get('executors').fields(...fldNames).query(q).limit(1).execute();
+    const entries = res?.data ?? [];
+    if (entries.length === 0) {
+        return null;
     }
-    catch (error) {
-        _a._logger.error(`Error creating executor: ${error?.message}`);
-        throw error;
-    }
+    const entry = entries[0];
+    _a._logger.debug("Test Runner:", entry);
+    return entry;
 };
-//TODO retest this method when fixed in Octane
-OctaneClient.createTestRunner = async (ciServerId, ciJobId) => {
-    const obj = {
-        name: "GHA Executor created From SDK",
+OctaneClient.createMbtTestRunner = async (name, ciServerId, ciJob) => {
+    const body = {
+        name: name,
+        subtype: "uft_test_runner",
         framework: {
             id: "list_node.je.framework.mbt",
-            // name: "UFT",
             type: "list_node"
-            // logical_name: "list_node.je.framework.uft"
         },
         ci_server: {
             id: ciServerId,
             type: "ci_server"
         },
         ci_job: {
-            id: ciJobId,
+            id: ciJob.id,
             type: 'ci_job'
         },
-        scm_repository: { id: 1004, "type": "scm_repository" } //      scm_type: 2, scm_url: "https://github.com/dorin7bogdan/ufto-tests.git"
+        jobCiId: ciJob.ci_id,
+        scm_type: 2, // GIT
+        scm_url: _a._config.repoUrl,
     };
-    const body = JSON.stringify(obj);
-    _a._logger.debug(`Creating test_runner with ${body}...`);
-    //const e = await this._octane.create('test_runners', obj).execute();
-    const headers = { 'ALM-OCTANE-TECH-PREVIEW': true }; //, 'ALM-OCTANE-PRIVATE': true 
-    const e = await _a._octane.executeCustomRequest(`${_a.CI_INTERNAL_API_URL}/je/test_runners/uft"`, alm_octane_js_rest_sdk_1.Octane.operationTypes.create, body, headers);
-    if (!e || e.total_count === 0 || e.data.length === 0) {
+    _a._logger.debug(`Creating test_runner: ${JSON.stringify(body)}...`);
+    const headers = { HPECLIENTTYPE: 'HPE_CI_CLIENT' }; //, "ALM-OCTANE-PRIVATE": true, "ALM-OCTANE-TECH-PREVIEW": true };
+    const entry = await _a._octane.executeCustomRequest(`${_a.CI_INTERNAL_API_URL}/je/test_runners/uft`, alm_octane_js_rest_sdk_1.Octane.operationTypes.create, body, headers);
+    if (!entry || entry.total_count === 0) {
         throw Error('Could not create the test runner entity.');
     }
-    const exec = e.data[0];
-    _a._logger.debug("Test Runner:", exec);
-    return exec;
+    _a._logger.debug("Test Runner:", entry);
+    return entry;
 };
 OctaneClient.getCiServerByInstanceId = async (instanceId) => {
     _a._logger.debug(`Getting CI server with {instanceId='${instanceId}'}...`);
     const ciServerQuery = query_1.default.field(INSTANCE_ID).equal((0, utils_1.escapeQueryVal)(`${instanceId}`)).build();
-    const ciServers = await _a._octane.get(CI_SERVERS).fields(INSTANCE_ID).query(ciServerQuery).execute();
-    return ciServers?.data?.length ? ciServers.data[0] : null;
+    const res = await _a._octane.get(CI_SERVERS).fields(INSTANCE_ID).query(ciServerQuery).limit(1).execute();
+    return res?.data?.length ? res.data[0] : null;
 };
 OctaneClient.getSharedSpaceName = async (sharedSpaceId) => {
     _a._logger.debug(`Getting the name of the shared space with {id='${sharedSpaceId}'}...`);
-    return (await _a._octane.executeCustomRequest(`/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get)).data[0].name;
+    const res = await _a._octane.executeCustomRequest(`/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
+    return res.data[0].name;
 };
 OctaneClient.getOctaneVersion = async () => {
     const requestHeaders = { 'ALM-OCTANE-TECH-PREVIEW': true };
@@ -74037,24 +74019,23 @@ OctaneClient.getFeatureToggles = async () => {
 };
 OctaneClient.fetchAutomatedTestsAgainstScmRepository = async (testNames = [], linkedToScmRepo = false) => {
     _a._logger.debug(`Getting automated tests linked to SCM repository ...`);
-    const testingToolTypeId = _a.getTestingToolTypeId(_a._config.testingTool);
-    const qry = query_1.default.field(TESTING_TOOL_TYPE).equal(query_1.default.field(ID).equal(testingToolTypeId));
+    let qry = query_1.default.field(TESTING_TOOL_TYPE).equal(query_1.default.field(ID).equal("list_node.testing_tool_type.uft"));
     if (testNames?.length) {
         const arr = testNames.map(name => (0, utils_1.escapeQueryVal)(name));
         const namesQry = query_1.default.field(NAME).inComparison(arr).build();
         namesQry.length <= 3000 && qry.and(namesQry);
     }
-    const scmRepoId = _a.getScmRepositoryId(_a._config.repoUrl);
+    const scmRepoId = await _a.getScmRepositoryId(_a._config.repoUrl);
+    const qry1 = query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepoId));
     if (linkedToScmRepo) {
-        qry.and(query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepoId)));
+        qry = qry.and(qry1);
     }
     else {
-        qry.and(query_1.default.field(SCM_REPOSITORY).equal(query_1.default.field(ID).equal(scmRepoId))).not();
+        qry = qry.and(qry1.not());
     }
-    const q = qry.build();
-    const entities = await _a._octane.get(AUTOMATED_TESTS).fields('id,name,package,executable,description,test_runner').query(q).execute();
-    const arr = entities?.data ?? [];
-    const mappedTests = _a.mapEntitiesByPackageAndName(arr);
+    const fields = ['id', 'name', 'package', 'executable', 'description', 'test_runner'];
+    const entries = await _a.fetchEntities(AUTOMATED_TESTS, qry, fields);
+    const mappedTests = _a.mapEntitiesByPackageAndName(entries);
     mappedTests.size && _a._logger.debug("Tests:");
     mappedTests.forEach((e, k) => {
         _a._logger.debug(k, e);
@@ -74063,37 +74044,34 @@ OctaneClient.fetchAutomatedTestsAgainstScmRepository = async (testNames = [], li
 };
 OctaneClient.fetchUnits = async (query) => {
     _a._logger.debug(`Getting units (model_items) ...`);
-    const q = query.build();
-    const res = await _a._octane.get(MODEL_ITEMS).fields('id,name,description,repository_path,parent,test_runner').query(q).execute();
-    const arr = res?.data ?? [];
-    arr.forEach(u => {
+    const units = await _a.fetchEntities(MODEL_ITEMS, query, ['id', 'name', 'description', 'repository_path', 'parent', 'test_runner']);
+    units.forEach(u => {
         _a._logger.debug("Unit:", u);
     });
-    return arr;
+    return units;
 };
 OctaneClient.getRunnerDedicatedFolder = async (executorId) => {
     const qry = query_1.default.field(TEST_RUNNER).equal(query_1.default.field(ID).equal(executorId))
         .and(query_1.default.field(SUBTYPE).equal(MODEL_FOLDER))
         .build();
-    const res = await _a._octane.get(MODEL_ITEMS).query(qry).execute();
+    const res = await _a._octane.get(MODEL_ITEMS).query(qry).fields(...["id", "name"]).limit(1).execute();
     return res?.data?.length ? res.data[0] : null;
 };
 OctaneClient.getGitMirrorFolder = async () => {
     const qry = query_1.default.field(LOGICAL_NAME).equal("mbt.discovery.unit.default_folder_name").build();
-    const res = await _a._octane.get(MODEL_ITEMS).query(qry).execute();
+    const res = await _a._octane.get(MODEL_ITEMS).query(qry).limit(1).execute();
     return res?.data?.length ? res.data[0] : null;
 };
 OctaneClient.fetchChildFolders = async (parentFolder, nameFilters = []) => {
-    let q = query_1.default.field(PARENT).equal(query_1.default.field(ID).equal(parentFolder.id))
+    let qry = query_1.default.field(PARENT).equal(query_1.default.field(ID).equal(parentFolder.id))
         .and(query_1.default.field(SUBTYPE).equal(MODEL_FOLDER));
-    if (nameFilters?.length) {
-        q = q.and(query_1.default.field(NAME).inComparison(nameFilters));
+    if (nameFilters.length) {
+        qry = qry.and(query_1.default.field(NAME).inComparison(nameFilters));
     }
-    const qry = q.build();
-    const res = await _a._octane.get(MODEL_ITEMS).query(qry).fields("id,name,type,subtype").execute();
-    return res?.data ?? [];
+    const fldNames = ["id", "name", "subtype"];
+    return await _a.fetchEntities(MODEL_ITEMS, qry, fldNames);
 };
-OctaneClient.createFolders = async (names, gitMirrorAutodiscoveryFolder) => {
+OctaneClient.createFolders = async (names, parentFolder) => {
     if (names.size === 0)
         return new Map();
     _a._logger.debug(`Creating ${names.size} folders ...`);
@@ -74102,20 +74080,19 @@ OctaneClient.createFolders = async (names, gitMirrorAutodiscoveryFolder) => {
         subtype: MODEL_FOLDER,
         name: folderName,
         parent: {
-            id: gitMirrorAutodiscoveryFolder.id,
-            name: gitMirrorAutodiscoveryFolder.name
+            id: parentFolder.id,
+            type: MODEL_ITEM,
+            name: parentFolder.name
         }
     }));
-    const res = await _a._octane.create(MODEL_ITEMS, folderBodies).fields('id,name,type,subtype').execute();
-    const folders = res?.data ?? [];
-    const foldersMap = new Map(folders.map(folder => [folder.name, folder]));
-    return foldersMap;
+    const fldNames = ['id', 'name'];
+    const folders = await _a.postEntities(MODEL_ITEMS, folderBodies, fldNames);
+    return new Map(folders.map(folder => [folder.name, folder]));
 };
 OctaneClient.updateFolders = async (folders) => {
     if (folders?.length) {
         _a._logger.debug(`Updating ${folders.length} folders ...`);
-        const res = await _a._octane.update(MODEL_ITEMS, folders).execute();
-        const updatedFolders = res?.data ?? [];
+        const updatedFolders = await _a.putEntities(MODEL_ITEMS, folders);
         _a._logger.debug(`Updated folders: ${updatedFolders.length}`);
         return updatedFolders;
     }
@@ -74123,73 +74100,67 @@ OctaneClient.updateFolders = async (folders) => {
 };
 OctaneClient.createUnits = async (unitsToAdd, paramsToAdd) => {
     _a._logger.debug(`Creating ${unitsToAdd.length} units ...`);
-    const res = await _a._octane.create(MODEL_ITEMS, unitsToAdd).fields(REPOSITORY_PATH).execute();
-    const postedUnitEntities = res?.data ?? [];
-    const unitEntities = new Map();
-    for (const unit of postedUnitEntities) {
-        if (!unit) {
+    const newUnits = await _a.postEntities(MODEL_ITEMS, unitsToAdd, [REPOSITORY_PATH]);
+    const unitsMap = new Map();
+    for (const u of newUnits) {
+        if (!u) {
             _a._logger.warn('Null or undefined unit found');
             continue;
         }
-        if (unit.repository_path) {
-            if (unitEntities.has(unit.repository_path)) {
-                _a._logger.warn(`Duplicate repository_path found: ${unit.repository_path}`);
+        if (u.repository_path) {
+            if (unitsMap.has(u.repository_path)) {
+                _a._logger.warn(`Duplicate repository_path found: ${u.repository_path}`);
             }
-            unitEntities.set(unit.repository_path, unit);
+            unitsMap.set(u.repository_path, u);
         }
         else {
-            _a._logger.warn(`Unit without repository_path found: ${unit.id}`);
+            _a._logger.warn(`Unit without repository_path found: ${u.id}`);
         }
     }
-    if (unitEntities.size === 0)
+    if (unitsMap.size === 0)
         return;
-    _a._logger.info(`Successfully added ${unitEntities.size} new units.`);
+    _a._logger.info(`Successfully added ${unitsMap.size} new units.`);
     _a._logger.info(`Dispatching ${paramsToAdd.length} new unit parameters ...`);
     // !!! IMPORTANT: replace parent unit entities for parameters in order to save their relations
     for (const param of paramsToAdd) {
         const parentUnit = param.model_item;
-        if (parentUnit.repository_path && unitEntities.has(parentUnit.repository_path)) {
-            const newParentUnit = unitEntities.get(parentUnit.repository_path);
-            param.model_item = { data: newParentUnit };
+        if (parentUnit.repository_path && unitsMap.has(parentUnit.repository_path)) {
+            const newParentUnit = unitsMap.get(parentUnit.repository_path);
+            param.model_item = { data: [newParentUnit] };
         }
         else {
-            _a._logger.warn(`Unit parameter ${param.name} has no model_item.`);
+            _a._logger.warn(`Unit parameter ${param.name} has no model_item.repository_path.`);
         }
     }
     // add parameters
-    const res2 = await _a._octane.create("entity_parameters", paramsToAdd).execute();
-    const unitParams = res2?.data ?? [];
+    const unitParams = await _a.postEntities("entity_parameters", paramsToAdd);
     _a._logger.info(`Successfully added ${unitParams.length} new unit parameters.`);
 };
 OctaneClient.updateUnits = async (units) => {
     if (!units || units.length === 0)
         return;
     _a._logger.debug(`Updating ${units.length} units ...`);
-    const res = await _a._octane.update(MODEL_ITEMS, units).execute();
-    const updatedUnits = res?.data ?? [];
+    const updatedUnits = await _a.putEntities(MODEL_ITEMS, units);
     _a._logger.debug(`Updated units: ${updatedUnits.length}`);
     return updatedUnits;
 };
 OctaneClient.getScmRepositoryId = async (repoURL) => {
     _a._logger.debug(`Getting SCM Repository with {url='${repoURL}'} ...`);
     const scmRepoQuery = query_1.default.field('url').equal((0, utils_1.escapeQueryVal)(repoURL)).build();
-    const scmRepos = await _a._octane.get('scm_repository_roots').fields(ID).query(scmRepoQuery).execute();
-    if (!scmRepos || scmRepos.total_count === 0 || scmRepos.data.length === 0) {
+    const res = await _a._octane.get('scm_repository_roots').fields(ID).query(scmRepoQuery).limit(1).execute();
+    if (!res || res.total_count === 0 || res.data.length === 0) {
         throw new Error(`SCM Repository not found.`);
     }
-    const scmRepoId = scmRepos.data[0].id;
-    _a._logger.debug("SCM Repository:", scmRepoId);
-    return scmRepoId;
+    const id = res.data[0].id;
+    _a._logger.debug("SCM Repository:", id);
+    return id;
 };
-OctaneClient.mapEntitiesByPackageAndName = (entities) => {
+OctaneClient.mapEntitiesByPackageAndName = (tests) => {
     const groupedEntities = new Map();
-    for (const entity of entities) {
-        groupedEntities.set(`${entity.getStringValue("package")}#${entity.getName()}`, entity);
+    for (const t of tests) {
+        groupedEntities.set(`${t.package ?? ''}#${t.name}`, t);
     }
     return groupedEntities;
-};
-OctaneClient.getTestingToolTypeId = (testingTool) => {
-    return `list_node.testing_tool_type.${testingTool}`;
 };
 OctaneClient.updatePluginVersion = async (instanceId) => {
     const querystring = __nccwpck_require__(3480);
@@ -74200,8 +74171,8 @@ OctaneClient.updatePluginVersion = async (instanceId) => {
     _a._logger.debug(`Updating CI Server's plugin_version to: '${_a.PLUGIN_VERSION}'`);
     await _a._octane.executeCustomRequest(`${_a.ANALYTICS_CI_INTERNAL_API_URL}/servers/${instanceId}/tasks?self-type=${_a.GITHUB_ACTIONS}&api-version=1&sdk-version=${sdk}&plugin-version=${pluginVersion}&self-url=${selfUrl}&client-id=${client_id}&client-server-user=`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get);
 };
-OctaneClient.getTestRunnerVersion = async (executorId, techPreview = false) => {
-    const headers = techPreview ? { 'ALM-OCTANE-TECH-PREVIEW': true } : undefined; //, 'ALM-OCTANE-PRIVATE': true 
+OctaneClient.getTestRunnerVersion = async (executorId) => {
+    const headers = { HPECLIENTTYPE: 'HPE_CI_CLIENT' }; //, "ALM-OCTANE-PRIVATE": true, "ALM-OCTANE-TECH-PREVIEW": true };
     const e = await _a._octane.executeCustomRequest(`${_a.CI_API_URL}/executors/${executorId}/version`, alm_octane_js_rest_sdk_1.Octane.operationTypes.get, undefined, headers);
     if (!e || e.total_count === 0 || e.data.length === 0) {
         throw Error('Could not get the test runner version.');
@@ -74225,7 +74196,7 @@ OctaneClient.getCiJob = async (ciId, ciServer) => {
     return ciJobs.data[0];
 };
 OctaneClient.createCiJob = async (ciJob) => {
-    _a._logger.debug(`Creating job with {ci_id='${ciJob.jobCiId}', ci_server.id='${ciJob.ciServer?.id}'}...`);
+    _a._logger.debug(`Creating job with {ci_id='${ciJob.jobCiId}', ci_server.id='${ciJob.ciServer?.id}'} ...`);
     const ciJobToCreate = {
         name: ciJob.name,
         parameters: ciJob.parameters,
@@ -74236,11 +74207,56 @@ OctaneClient.createCiJob = async (ciJob) => {
         },
         branch: ciJob.branchName
     };
-    const ciJobs = await _a._octane.create('ci_jobs', ciJobToCreate).execute();
+    const ciJobs = await _a._octane.create('ci_jobs', ciJobToCreate).fields('id,ci_id,name,ci_server{name,instance_id}').execute();
     if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
         throw Error('Could not create the CI job entity.');
     }
     return ciJobs.data[0];
+};
+OctaneClient.fetchEntities = async (collectionName, query = query_1.default.NULL, fields = []) => {
+    const qry = query === query_1.default.NULL ? "" : query.build();
+    const entities = [];
+    const MAX_LIMIT = 1000;
+    let go = false;
+    do {
+        const res = await _a._octane.get(collectionName).query(qry).fields(...fields).offset(entities.length).limit(MAX_LIMIT).orderBy("id").execute();
+        go = res.total_count === MAX_LIMIT && res.data?.length === MAX_LIMIT;
+        res.data?.length && entities.push(...res.data);
+    } while (go);
+    return entities;
+};
+OctaneClient.postEntities = async (collectionName, entries, fields = []) => {
+    const results = [];
+    const MAX_LIMIT = 100;
+    const partitions = _a.partition(entries, MAX_LIMIT);
+    for (const entities of partitions) {
+        const res = await _a._octane.create(collectionName, entities).fields(...fields).execute();
+        res.data?.length && results.push(...res.data); // TODO debug to see if res or res.data contains the content
+    }
+    return results;
+};
+OctaneClient.putEntities = async (collectionName, entries, fields = []) => {
+    const results = [];
+    const MAX_LIMIT = 100;
+    const partitions = _a.partition(entries, MAX_LIMIT);
+    for (const entities of partitions) {
+        const res = await _a._octane.update(collectionName, entities).fields(...fields).execute();
+        res.data?.length && results.push(...res.data); // TODO debug to see if res or res.data contains the content
+    }
+    return results;
+};
+/**
+ * Partitions an array into smaller arrays of a specified size.
+ * @param array The array to partition.
+ * @param size The size of each partition.
+ * @returns An array of partitioned arrays.
+ */
+OctaneClient.partition = (array, size) => {
+    const result = [];
+    for (let i = 0; i < array.length; i += size) {
+        result.push(array.slice(i, i + size));
+    }
+    return result;
 };
 exports["default"] = OctaneClient;
 
@@ -74299,8 +74315,6 @@ try {
         octaneClientId: (0, core_1.getInput)('octaneClientId').trim(),
         octaneClientSecret: (0, core_1.getInput)('octaneClientSecret').trim(),
         githubToken: (0, core_1.getInput)('githubToken').trim(),
-        serverBaseUrl: serverUrl,
-        pipelineNamePattern: (0, core_1.getInput)('pipelineNamePattern'),
         testingTool: (0, core_1.getInput)('testingToolType').toLowerCase().trim(),
         minSyncInterval: Number.parseInt((0, core_1.getInput)('minSyncInterval').trim()),
         owner: owner,
@@ -75473,6 +75487,633 @@ async function calculateSimilarity(dir, oldCommit, newCommit, oldPath, newPath) 
 
 /***/ }),
 
+/***/ 5025:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.dispatchDiscoveryResults = void 0;
+/*
+ * Copyright 2016-2025 Open Text.
+ *
+ * The only warranties for products and services of Open Text and
+ * its affiliates and licensors (�Open Text�) are as may be set forth
+ * in the express warranty statements accompanying such products and services.
+ * Nothing herein should be construed as constituting an additional warranty.
+ * Open Text shall not be liable for technical or editorial errors or
+ * omissions contained herein. The information contained herein is subject
+ * to change without notice.
+ *
+ * Except as specifically indicated otherwise, this document contains
+ * confidential information and a valid license is required for possession,
+ * use or copying. If this work is provided to the U.S. Government,
+ * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
+ * Computer Software Documentation, and Technical Data for Commercial Items are
+ * licensed to the U.S. Government under vendor's standard commercial license.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
+const logger_1 = __nccwpck_require__(7893);
+const EntityConstants_1 = __nccwpck_require__(9129);
+const OctaneStatus_1 = __nccwpck_require__(2828);
+const UftoParamDirection_1 = __nccwpck_require__(2410);
+const utils_1 = __nccwpck_require__(5268);
+const LIST_NODE = "list_node";
+const INPUT = "input";
+const OUTPUT = "output";
+const _logger = new logger_1.Logger('mbtDiscoveryResultDispatcher');
+const getAutoDiscoveredFolder = async (executorId) => {
+    let autoDiscoveredFolder = await octaneClient_1.default.getRunnerDedicatedFolder(executorId);
+    if (autoDiscoveredFolder == null) // TODO check if this is the expected behavior
+        autoDiscoveredFolder = await octaneClient_1.default.getGitMirrorFolder();
+    if (autoDiscoveredFolder == null) {
+        throw new Error("Failed to get auto-discovered folder");
+    }
+    return autoDiscoveredFolder;
+};
+const createParentFolders = async (newActions, autoDiscoveredFolder) => {
+    // find existing sub folders. each folder's name is the test name that contains the actions
+    const existingSubFolders = await octaneClient_1.default.fetchChildFolders(autoDiscoveredFolder);
+    const existingSubFoldersMap = new Map(existingSubFolders.map(folder => [folder.name, folder]));
+    // Collect test names into a set
+    const testNames = new Set(newActions.map(action => action.testName));
+    // Find which folders are missing and need to be created
+    for (const folderName of existingSubFoldersMap.keys()) {
+        testNames.delete(folderName);
+    }
+    if (testNames.size > 0) {
+        _logger.debug(`Creating ${testNames.size} folders ...`);
+        const newFoldersMap = await octaneClient_1.default.createFolders(testNames, autoDiscoveredFolder);
+        if (newFoldersMap?.size) {
+            for (const [key, value] of newFoldersMap) {
+                existingSubFoldersMap.set(key, value);
+            }
+        }
+    }
+    return existingSubFoldersMap;
+};
+// count the distinct tests paths from all the given units
+const countDistinctTests = (units) => {
+    const distinctPaths = new Set(units.map(u => (0, utils_1.extractScmTestPath)(u.repository_path)));
+    return distinctPaths.size;
+};
+const updateFolders = async (folders, oldName2newNameMap) => {
+    if (folders?.length) {
+        _logger.debug(`Updating ${folders.length} folders ...`);
+        const foldersToUpdate = folders.map((f) => {
+            return { id: `${f.id}`, name: oldName2newNameMap.get(f.name) };
+        });
+        await octaneClient_1.default.updateFolders(foldersToUpdate);
+    }
+};
+const updateParentFolders = async (scmRepositoryId, updatedActions, autoDiscoveredFolder) => {
+    const oldNameToNewNameMap = updatedActions.reduce((acc, action) => {
+        if (action.moved && action.testName && action.oldTestName && action.testName !== action.oldTestName) {
+            acc.set(action.oldTestName, action.testName);
+        }
+        return acc;
+    }, new Map());
+    if (oldNameToNewNameMap.size === 0)
+        return new Map();
+    // check if the folders by the new names already exist
+    const existingFolders = await octaneClient_1.default.fetchChildFolders(autoDiscoveredFolder, [...oldNameToNewNameMap.values()]);
+    const existingFoldersMap = new Map(existingFolders.map(folder => [folder.name, folder]));
+    // filter out duplicate folders
+    let folderNamesToUpdate = [...oldNameToNewNameMap.entries()].filter(([_, value]) => !existingFoldersMap.has(value)).map(([key]) => key);
+    if (folderNamesToUpdate.length) { // if the folder name does not exist rename the current parent folder
+        // extract all the units from the potential folders needed to be renamed. this is required in order to validate that
+        // the folder contains only units from the same moved test. otherwise, we can't rename the folder but create a new folder
+        // and move all the units of the moved test under the new folder
+        const units = await octaneClient_1.default.fetchUnitsFromFolders(scmRepositoryId, Object.freeze(folderNamesToUpdate));
+        // Group units by parent folder name
+        const folderNameToUnitsMap = new Map(units.reduce((acc, unit) => {
+            const parentName = unit.parent?.name;
+            if (!parentName) {
+                _logger.warn(`Unit ${unit.name} has no parent folder, skipping...`);
+                return acc; // Skip if no parent name
+            }
+            const unitsForFolder = acc.get(parentName) ?? [];
+            unitsForFolder.push(unit);
+            acc.set(parentName, unitsForFolder);
+            return acc;
+        }, new Map()));
+        // Filter folders with multiple distinct tests
+        const foldersWithMultipleTests = new Set([...folderNamesToUpdate].filter(folderName => {
+            const units = folderNameToUnitsMap.get(folderName);
+            return units && countDistinctTests(units) > 1;
+        }));
+        // a folder should be renamed only if it contains units from the same test
+        folderNamesToUpdate = folderNamesToUpdate.filter(folderName => !foldersWithMultipleTests.has(folderName));
+        // remove the folders containing units from multiple tests
+        if (folderNamesToUpdate.length) {
+            const folders2update = await octaneClient_1.default.fetchChildFolders(autoDiscoveredFolder, folderNamesToUpdate);
+            await updateFolders(folders2update, oldNameToNewNameMap);
+        }
+        // create the new folders for the moved units
+        if (foldersWithMultipleTests?.size) {
+            const foldersToCreate = new Set();
+            for (const folderName of foldersWithMultipleTests) {
+                const newFolderName = oldNameToNewNameMap.get(folderName);
+                newFolderName && foldersToCreate.add(newFolderName);
+            }
+            const newFoldersMap = await octaneClient_1.default.createFolders(foldersToCreate, autoDiscoveredFolder);
+            // Append newFoldersMap to existingFoldersMap
+            for (const [key, value] of newFoldersMap.entries()) {
+                existingFoldersMap.set(key, value);
+            }
+        }
+        // potential duplicated folder names. in this case we need to update the parent folder link in the relevant units
+        return existingFoldersMap;
+    }
+    return new Map();
+};
+const createUnitParam = (param, unit) => {
+    const direction = param.direction == UftoParamDirection_1.UftoParamDirection.IN ? INPUT : OUTPUT;
+    return {
+        type: EntityConstants_1.EntityConstants.MbtUnitParameter.ENTITY_NAME,
+        subtype: EntityConstants_1.EntityConstants.MbtUnitParameter.ENTITY_SUBTYPE,
+        name: param.name,
+        model_item: { repository_path: unit.repository_path }, //TODO check if this is correct
+        parameter_type: { id: `list_node.entity_parameter_type.${direction}`, type: LIST_NODE },
+        value: param.defaultValue,
+    };
+};
+const buildUnit = (executorId, action, parentId, unitParams = null) => {
+    if (!parentId && !action.id) {
+        throw new Error("Received null parent folder, when trying to create a new unit entity");
+    }
+    const parentRef = parentId ? { id: parentId, type: EntityConstants_1.EntityConstants.ModelFolder.ENTITY_NAME } : null;
+    let unit = {
+        name: !action.logicalName || action.logicalName.startsWith("Action") ? `${action.testName}:${action.name}` : action.logicalName,
+        type: EntityConstants_1.EntityConstants.MbtUnit.ENTITY_NAME,
+        subtype: EntityConstants_1.EntityConstants.MbtUnit.ENTITY_SUBTYPE,
+        automation_status: { id: "list_node.automation_status.automated", type: LIST_NODE },
+        repository_path: action.repositoryPath,
+        parent: parentRef,
+        test_runner: { id: executorId, type: "executor" }
+        //testing_tool_type: TODO might not be needed
+    };
+    action.id && (unit.id = action.id); // if the action already exists, we need to set its ID
+    action.description && (unit.description = action.description);
+    //TODO check why we need to add the unit to each param ?
+    if (unitParams) {
+        action.parameters?.forEach(p => {
+            unitParams.push(createUnitParam(p, unit));
+        });
+    }
+    return unit;
+};
+const dispatchNewActions = async (executorId, newActions, autoDiscoveredFolder) => {
+    if (newActions?.length) {
+        const foldersMap = await createParentFolders(newActions, autoDiscoveredFolder);
+        const paramsToAdd = []; // add external parameter entities list to be filled by each action creation
+        // add units
+        const unitsToAdd = [];
+        for (const action of newActions) {
+            if (!action.testName) {
+                _logger.error(`Test name is undefined for action ${action.name}`);
+                continue;
+            }
+            const parentFolder = foldersMap.get(action.testName);
+            if (!parentFolder) {
+                _logger.error(`Parent folder for test ${action.testName} not found`);
+                continue;
+            }
+            unitsToAdd.push(buildUnit(executorId, action, parentFolder.id, paramsToAdd));
+        }
+        await octaneClient_1.default.createUnits(unitsToAdd, paramsToAdd);
+    }
+    return true;
+};
+// we do not delete units. instead, we reset some of their attributes
+const dispatchDeletedActions = async (deletedActions) => {
+    if (deletedActions?.length) {
+        _logger.debug(`Deleting ${deletedActions.length} actions ...`);
+        const unitsToDelete = [];
+        for (const action of deletedActions) {
+            if (!action.id) {
+                _logger.error(`ID is undefined for action ${action.name}`);
+                continue;
+            }
+            const unit = {
+                id: action.id,
+                repository_path: null,
+                description: null,
+                parent: null,
+                automation_status: { id: "list_node.automation_status.not_automated", type: LIST_NODE }
+            };
+            unit.test_runner = null; // TODO currently in Tech-preview
+            //unit.testing_tool_type = null; // TODO currently in Tech-preview
+            unitsToDelete.push(unit);
+        }
+        await octaneClient_1.default.updateUnits(unitsToDelete);
+    }
+    return true;
+};
+const dispatchUpdatedActions = async (executorId, scmRepositoryId, updatedActions, autoDiscoveredFolder) => {
+    if (updatedActions?.length) {
+        _logger.info(`Updating ${updatedActions.length} actions ...`);
+        const existingFoldersMap = await updateParentFolders(scmRepositoryId, updatedActions, autoDiscoveredFolder);
+        // convert actions to unit entities
+        const unitsToUpdate = updatedActions.map(action => {
+            const parentFolder = action.testName ? existingFoldersMap.get(action.testName) ?? null : null;
+            return buildUnit(executorId, action, parentFolder?.id ?? null);
+        });
+        // update units
+        await octaneClient_1.default.updateUnits(unitsToUpdate);
+    }
+    return true;
+};
+const dispatchDiscoveryResults = async (executorId, scmRepositoryId, result) => {
+    _logger.info('Dispatching discovery results ...');
+    const allActions = result.getAllTests().flatMap(aTest => aTest.actions);
+    const actionsByStatusMap = allActions.reduce((acc, action) => {
+        const status = action.octaneStatus;
+        if (!acc.has(status)) {
+            acc.set(status, []);
+        }
+        acc.get(status).push(action);
+        return acc;
+    }, new Map());
+    const autoDiscoveredFolder = await getAutoDiscoveredFolder(executorId);
+    // handle new actions - create new units and parameters in octane
+    let newActionsSynced = true;
+    if (actionsByStatusMap.has(OctaneStatus_1.OctaneStatus.NEW)) {
+        newActionsSynced = await dispatchNewActions(executorId, actionsByStatusMap.get(OctaneStatus_1.OctaneStatus.NEW), autoDiscoveredFolder);
+    }
+    // handle deleted actions - currently do nothing
+    let delActionsSynced = true;
+    if (actionsByStatusMap.has(OctaneStatus_1.OctaneStatus.DELETED)) {
+        delActionsSynced = await dispatchDeletedActions(actionsByStatusMap.get(OctaneStatus_1.OctaneStatus.DELETED));
+    }
+    let updatedActionsSynced = true;
+    if (actionsByStatusMap.has(OctaneStatus_1.OctaneStatus.MODIFIED)) {
+        updatedActionsSynced = await dispatchUpdatedActions(executorId, scmRepositoryId, actionsByStatusMap.get(OctaneStatus_1.OctaneStatus.MODIFIED), autoDiscoveredFolder);
+    }
+    return newActionsSynced && delActionsSynced && updatedActionsSynced;
+};
+exports.dispatchDiscoveryResults = dispatchDiscoveryResults;
+
+
+/***/ }),
+
+/***/ 6715:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.mbtPrepDiscoveryRes4Sync = void 0;
+/*
+ * Copyright 2016-2025 Open Text.
+ *
+ * The only warranties for products and services of Open Text and
+ * its affiliates and licensors (�Open Text�) are as may be set forth
+ * in the express warranty statements accompanying such products and services.
+ * Nothing herein should be construed as constituting an additional warranty.
+ * Open Text shall not be liable for technical or editorial errors or
+ * omissions contained herein. The information contained herein is subject
+ * to change without notice.
+ *
+ * Except as specifically indicated otherwise, this document contains
+ * confidential information and a valid license is required for possession,
+ * use or copying. If this work is provided to the U.S. Government,
+ * consistent with FAR 12.211 and 12.212, Commercial Computer Software,
+ * Computer Software Documentation, and Technical Data for Commercial Items are
+ * licensed to the U.S. Government under vendor's standard commercial license.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+const alm_octane_js_rest_sdk_1 = __nccwpck_require__(3967);
+const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
+const logger_1 = __nccwpck_require__(7893);
+const EntityConstants_1 = __nccwpck_require__(9129);
+const utils_1 = __nccwpck_require__(5268);
+const OctaneStatus_1 = __nccwpck_require__(2828);
+const _logger = new logger_1.Logger('mbtDiscoveryResultPreparer');
+const { ID, REPOSITORY_PATH, SCM_REPOSITORY } = EntityConstants_1.EntityConstants.MbtUnit;
+const mbtPrepDiscoveryRes4Sync = async (executorId, scmRepositoryId, discoveryRes) => {
+    if (discoveryRes.isFullSync()) {
+        _logger.info(`Preparing full sync dispatch with MBT for executor ${executorId}`);
+        const units = await fetchUnitsByScmRepository(scmRepositoryId);
+        const existingUnitsByRepo = units.reduce((acc, unit) => {
+            const key = unit.repository_path;
+            acc.set(key, unit);
+            return acc;
+        }, new Map());
+        removeExistingUnits(discoveryRes, existingUnitsByRepo);
+    }
+    else {
+        handleDeletedTests(discoveryRes.getDeletedTests());
+        handleAddedTests(discoveryRes);
+        handleUpdatedTests(discoveryRes.getUpdatedTests());
+        handleMovedTests(discoveryRes.getUpdatedTests());
+    }
+};
+exports.mbtPrepDiscoveryRes4Sync = mbtPrepDiscoveryRes4Sync;
+const fetchUnitsByScmRepository = async (scmRepositoryId) => {
+    const qry1 = alm_octane_js_rest_sdk_1.Query.field(SCM_REPOSITORY).equal(alm_octane_js_rest_sdk_1.Query.field(ID).equal(scmRepositoryId))
+        .and(alm_octane_js_rest_sdk_1.Query.field(REPOSITORY_PATH).notEqual(alm_octane_js_rest_sdk_1.Query.NULL)); // folders are also model items, but they don't have a repository path (it is null, also a different subtype)
+    return await octaneClient_1.default.fetchUnits(qry1);
+};
+const convertUnitToAction = (unit, octStatus) => {
+    return {
+        id: `${unit.id}`,
+        name: unit.name,
+        logicalName: unit.name,
+        octaneStatus: octStatus,
+        repositoryPath: unit.repository_path
+    };
+};
+const handleAddedTests = async (discoveryRes) => {
+    const newTests = discoveryRes.getNewTests();
+    if (newTests.length === 0) {
+        return;
+    }
+    _logger.info(`Processing new tests. Count: ${newTests.length}.`);
+    // Collect repository paths of actions for new tests that are not moved
+    const newActionsRepositoryPaths = newTests
+        .filter(automatedTest => !automatedTest.isMoved)
+        .flatMap(automatedTest => automatedTest.actions)
+        .map(action => action.repositoryPath);
+    if (newActionsRepositoryPaths.length === 0) {
+        _logger.warn('No repository paths found for new tests.');
+        return;
+    }
+    const qry = alm_octane_js_rest_sdk_1.Query.field(REPOSITORY_PATH).inComparison(newActionsRepositoryPaths);
+    const unitsFromServer = await octaneClient_1.default.fetchUnits(qry);
+    if (!unitsFromServer || unitsFromServer.length === 0) {
+        _logger.warn('No units found in Octane for the given repository paths.');
+        return;
+    }
+    const octaneUnitsMap = unitsFromServer.reduce((acc, u) => {
+        const repoPath = u.repository_path;
+        acc.set(repoPath, u); // add or update the key-value pair. If a duplicate key is encountered, the value will be overwritten.
+        return acc;
+    }, new Map());
+    removeExistingUnits(discoveryRes, octaneUnitsMap);
+};
+const handleUpdatedTests = async (updatedTests) => {
+    if (!updatedTests || updatedTests.length === 0) {
+        return;
+    }
+    updatedTests = updatedTests.filter(test => !test.isMoved);
+    if (updatedTests.length === 0) {
+        return;
+    }
+    _logger.info(`Processing updated tests. Count: ${updatedTests.length}.`);
+    // there are 4 cases:
+    // 1. new action -> action will exist in the automated test but not in octane
+    // 2. delete action -> action will exist in octane but not in the automated test
+    // 3. updated action -> action will exist both in the automated test and in octane and will differ in the logical
+    // name and/or description
+    // 4. not modified action -> action in the automated test is equal to the unit in octane
+    const scmPathToActionMap = new Map(updatedTests.flatMap(test => test.actions).map(action => {
+        const key = (0, utils_1.extractScmPathFromActionPath)(action.repositoryPath);
+        return [key, action];
+    }));
+    // create a condition for each test to fetch its units by the old test name
+    const qry = updatedTests.reduce((acc, test) => {
+        const q = getActionPathPrefixQuery(test, false);
+        return acc === alm_octane_js_rest_sdk_1.Query.NULL ? q : acc.or(q);
+    }, alm_octane_js_rest_sdk_1.Query.NULL);
+    const unitsFromServer = await octaneClient_1.default.fetchUnits(qry);
+    const scmPathToUnitMap = unitsFromServer.reduce((acc, u) => {
+        const scmPath = (0, utils_1.extractScmPathFromActionPath)(u.repository_path);
+        acc.set(scmPath, u);
+        return acc;
+    }, new Map());
+    handleUpdatedTestAddedActionCase(scmPathToActionMap, scmPathToUnitMap);
+    handleUpdatedTestDeletedActionCase(scmPathToActionMap, scmPathToUnitMap, updatedTests);
+    handleUpdatedTestUpdatedActionCase(scmPathToActionMap, scmPathToUnitMap);
+    // just a validation
+    if (scmPathToActionMap.size || scmPathToUnitMap.size) {
+        _logger.warn("Not all of the existing units or actions were processed");
+    }
+};
+const handleDeletedTests = async (deletedTests) => {
+    if (deletedTests.length === 0) {
+        return;
+    }
+    // create a condition for each test to fetch its units by the old test name
+    const qry = deletedTests.reduce((acc, test) => {
+        const q = getActionPathPrefixQuery(test, false);
+        return acc === alm_octane_js_rest_sdk_1.Query.NULL ? q : acc.or(q);
+    }, alm_octane_js_rest_sdk_1.Query.NULL);
+    const unitsFromServer = await octaneClient_1.default.fetchUnits(qry);
+    // Since the test was already deleted from the SCM, the automated test will not contain any UFT actions.
+    // We need to map each unit from Octane to the automated test and create a marker UFT action with only the unit ID
+    // so later we will be able to update the unit entities.
+    deletedTests.forEach(automatedTest => {
+        const actionPathPrefix = (0, utils_1.getTestPathPrefix)(automatedTest, false);
+        // Find all the unit entities that belong to this test
+        const unitsOfTest = unitsFromServer.filter(unit => unit.repository_path.startsWith(actionPathPrefix));
+        // Remove the filtered units from the original units array
+        unitsFromServer.splice(unitsFromServer.indexOf(unitsOfTest[0]), unitsOfTest.length);
+        // Convert unit entities to test actions
+        automatedTest.actions = unitsOfTest.map(unit => {
+            return convertUnitToAction(unit, OctaneStatus_1.OctaneStatus.DELETED);
+        });
+    });
+};
+const getActionPathPrefixQuery = (test, orgPath) => {
+    const actionPathPrefix = (0, utils_1.getTestPathPrefix)(test, orgPath);
+    const actionPathPrefixEscaped = (0, utils_1.escapeQueryVal)(actionPathPrefix);
+    return alm_octane_js_rest_sdk_1.Query.field(REPOSITORY_PATH).equal(`${actionPathPrefixEscaped}*`);
+};
+//TODO check if the logic is 100% correct, ask Itay about entityHelper.useUnitToRunnerLogic() from MbtDiscoveryResultPreparerImpl.java
+const removeExistingUnits = (discoveryRes, octaneUnitsMap) => {
+    discoveryRes.getAllTests().forEach(test => {
+        test.actions = test.actions.filter(action => {
+            if (!action.repositoryPath)
+                return true; // Keep if no repositoryPath
+            const u = octaneUnitsMap.get(action.repositoryPath);
+            if (!u)
+                return true; // Keep the action if no Octane Unit is found
+            if (u.test_runner)
+                return false; // Remove the action if test_runner exists
+            action.octaneStatus = OctaneStatus_1.OctaneStatus.MODIFIED;
+            action.id = `${u.id}`;
+            return true; // Keep the action
+        });
+    });
+};
+// handle case 1 for added actions
+const handleUpdatedTestAddedActionCase = (scmPathToActionMap, scmPathToUnitMap) => {
+    const addedActions = Array.from(scmPathToActionMap.keys()).filter(key => !scmPathToUnitMap.has(key));
+    if (addedActions.length > 0) {
+        _logger.debug(`Found ${addedActions.length} updated tests for added action`);
+        addedActions.forEach(p => {
+            const action = scmPathToActionMap.get(p);
+            if (action) {
+                action.octaneStatus = OctaneStatus_1.OctaneStatus.NEW; // not required, just for readability
+                scmPathToActionMap.delete(p);
+            }
+        });
+    }
+};
+// handle case 2 for deleted actions
+const handleUpdatedTestDeletedActionCase = (scmPathToActionMap, scmPathToUnitMap, updatedTests) => {
+    const deletedActions = Array.from(scmPathToUnitMap.keys()).filter(key => !scmPathToActionMap.has(key));
+    if (deletedActions.length > 0) {
+        let updatedTestsCounter = 0;
+        deletedActions.forEach(s => {
+            const scmTestPath = (0, utils_1.extractScmTestPath)(s);
+            if (!scmTestPath) {
+                const u = scmPathToUnitMap.get(s);
+                if (u) {
+                    _logger.warn(`Repository path ${s} of unit id: ${u.id}, name: "${u.name}" is not valid and will be discarded`);
+                    scmPathToUnitMap.delete(s);
+                }
+            }
+            else {
+                // Try to match between the automated test and the units to be deleted. Since the action was already deleted
+                // from the SCM, we need to update Octane. The handling is the same as handling a deleted test. We need
+                // to mark the deleted actions and provide only the unit id.
+                updatedTests.forEach(automatedTest => {
+                    const calculatedTestPath = (0, utils_1.getTestPathPrefix)(automatedTest, false).toLowerCase();
+                    // Match found. Add a marker action to the automated test.
+                    if (calculatedTestPath === scmTestPath) {
+                        const entity = scmPathToUnitMap.get(s);
+                        if (entity) {
+                            const action = convertUnitToAction(entity, OctaneStatus_1.OctaneStatus.DELETED);
+                            automatedTest.actions.push(action);
+                            updatedTestsCounter++;
+                        }
+                    }
+                });
+                scmPathToUnitMap.delete(s);
+                _logger.info(`Found ${updatedTestsCounter} updated tests for deleted action`);
+            }
+        });
+    }
+};
+// handle case 3 for updated actions
+const handleUpdatedTestUpdatedActionCase = (scmPathToActionMap, scmPathToUnitMap) => {
+    // updated action candidates
+    const sameActions = Array.from(scmPathToUnitMap.keys()).filter(key => scmPathToActionMap.has(key));
+    if (sameActions.length > 0) {
+        sameActions.forEach(scmPath => {
+            const action = scmPathToActionMap.get(scmPath);
+            const unit = scmPathToUnitMap.get(scmPath);
+            if (action && unit) {
+                // if the logical name has changed, mark the action as modified
+                const logicalName = (0, utils_1.extractActionLogicalNameFromActionPath)(unit.repository_path).toLowerCase();
+                if (action.logicalName.toLowerCase() === logicalName) {
+                    action.octaneStatus = OctaneStatus_1.OctaneStatus.NONE;
+                }
+                else {
+                    action.id = `${unit.id}`;
+                    action.octaneStatus = OctaneStatus_1.OctaneStatus.MODIFIED;
+                }
+                action.parameters?.forEach(p => {
+                    p.octaneStatus = OctaneStatus_1.OctaneStatus.NONE; // currently do not support parameter changes
+                });
+                scmPathToActionMap.delete(scmPath);
+                scmPathToUnitMap.delete(scmPath);
+            }
+        });
+    }
+};
+const handleMovedTests = async (updatedTests) => {
+    if (updatedTests.length === 0)
+        return;
+    const movedTests = updatedTests.filter(test => test.isMoved);
+    if (movedTests.length === 0)
+        return;
+    // create a condition for each test to fetch its units by the old test name
+    const qry = movedTests.reduce((acc, test) => {
+        const q = getActionPathPrefixQuery(test, true);
+        return acc === alm_octane_js_rest_sdk_1.Query.NULL ? q : acc.or(q);
+    }, alm_octane_js_rest_sdk_1.Query.NULL);
+    const unitsFromServer = await octaneClient_1.default.fetchUnits(qry);
+    // now, we need to match between the original units and the automated test by the original action path prefix.
+    // then, we will store a mapping between what the new action path should be and the unit id and update each unit
+    // with the id and update the status to modified
+    movedTests.forEach(aTest => {
+        // match units from octane to automated test by the original repository path prefix
+        const origActionPathPrefix = (0, utils_1.getTestPathPrefix)(aTest, true);
+        const units = unitsFromServer.filter(u => u.repository_path.startsWith(origActionPathPrefix));
+        // since the repository path for the action is changed, we need to compare the actions/units by the action name from UFTOne: Action1, Action2 etc.
+        // a map that contains the action name: Action1, Action2 ... to the entity from Octane.
+        const actionNameToUnitMap = units.reduce((acc, unit) => {
+            const actionName = (0, utils_1.extractActionNameFromActionPath)(unit.repository_path);
+            acc.set(actionName, unit);
+            return acc;
+        }, new Map());
+        // a map of the action name to the action from UFTOne
+        const actionNameToUftActionMap = aTest.actions.reduce((acc, action) => {
+            acc.set(action.name, action);
+            return acc;
+        }, new Map());
+        // handle add actions
+        const addedActions = Array.from(actionNameToUftActionMap.keys()).filter(key => !actionNameToUnitMap.has(key));
+        if (addedActions.length > 0) {
+            _logger.info(`Found ${addedActions.length} added actions for moved test ${aTest.name}`);
+        }
+        // handle deleted actions
+        const deletedActionNames = Array.from(actionNameToUnitMap.keys()).filter(key => !actionNameToUftActionMap.has(key));
+        if (deletedActionNames.length > 0) {
+            _logger.info(`Found ${deletedActionNames.length} deleted actions for moved test ${aTest.name}`);
+            // add the action as deleted to the automated test
+            deletedActionNames.forEach(aName => {
+                const entity = actionNameToUnitMap.get(aName);
+                if (entity) {
+                    const action = convertUnitToAction(entity, OctaneStatus_1.OctaneStatus.DELETED);
+                    action.name = aName;
+                    aTest.actions.push(action);
+                }
+            });
+        }
+        // handle moved actions - not deleted and not added
+        aTest.actions
+            .filter(uftTestAction => !addedActions.includes(uftTestAction.name) && !deletedActionNames.includes(uftTestAction.name))
+            .forEach(action => {
+            const unit = actionNameToUnitMap.get(action.name);
+            if (unit) {
+                action.id = `${unit.id}`;
+                action.octaneStatus = OctaneStatus_1.OctaneStatus.MODIFIED;
+                action.moved = true;
+                action.oldTestName = aTest.oldName;
+                action.parameters = []; // currently the java code sets octaneStatus to NONE for all params and then deletes all params
+            }
+        });
+        // remove the matched entities to remove duplicates
+        unitsFromServer.splice(0, unitsFromServer.length, ...unitsFromServer.filter(unit => !units.includes(unit)));
+    });
+    // when we reach here all the units from octane should have been removed
+    if (unitsFromServer.length > 0) {
+        _logger.warn("Not all units from octane were mapped to moved tests");
+    }
+};
+
+
+/***/ }),
+
 /***/ 2828:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -75745,28 +76386,30 @@ const executorService_1 = __nccwpck_require__(4511);
 const Discovery_1 = __importDefault(__nccwpck_require__(6672));
 const UftoParamDirection_1 = __nccwpck_require__(2410);
 const OctaneStatus_1 = __nccwpck_require__(2828);
+const mbtDiscoveryResultPreparer_1 = __nccwpck_require__(6715);
 const ciJobService_1 = __nccwpck_require__(9569);
+const mbtDiscoveryResultDispatcher_1 = __nccwpck_require__(5025);
+const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('eventHandler');
 const handleCurrentEvent = async () => {
     _logger.info('BEGIN handleEvent ...');
     const event = github_1.context.payload;
     const eventName = github_1.context.eventName;
-    /*   if (event) {
-        _logger.debug(`event = ${JSON.stringify(event)}`);
-      } else {
-        _logger.debug('event is null or undefined');
-      } */
+    /* event && _logger.debug(`event = ${JSON.stringify(event)}`); */
     const eventType = (0, ciEventsService_1.getEventType)(event?.action || eventName);
     if (eventType === "unknown" /* ActionsEventType.UNKNOWN_EVENT */) {
         _logger.info('Unknown event type');
         return;
     }
     _logger.info(`eventType = ${event?.action || eventName}`);
-    /*  const workflowFilePath = event.workflow?.path;
-      const workflowName = event.workflow?.name;
-      const workflowRunId = event.workflow_run?.id;
-      const branchName = event.workflow_run?.head_branch;*/
+    const workflowFilePath = event.workflow?.path;
+    //const workflowName = event.workflow?.name;
+    //const workflowRunId = event.workflow_run?.id;
+    const branchName = event.workflow_run?.head_branch;
+    if (!workflowFilePath) {
+        throw new Error('Event should contain workflow file path!');
+    }
     _logger.info(`Current repository URL: ${_config.repoUrl}`);
     const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
     _logger.info(`Working directory: ${workDir}`);
@@ -75824,7 +76467,8 @@ const handleCurrentEvent = async () => {
                 }
             }
             // TODO sync the tests with Octane
-            await doTestSync(discoveryRes);
+            const workflowFilename = node_path_1.default.basename(workflowFilePath);
+            await doTestSync(discoveryRes, workflowFilename, branchName);
             const newCommit = discoveryRes.getNewCommit();
             if (newCommit !== oldCommit) {
                 await (0, utils_1.saveSyncedCommit)(newCommit);
@@ -75840,55 +76484,24 @@ const handleCurrentEvent = async () => {
     _logger.info('END handleEvent ...');
 };
 exports.handleCurrentEvent = handleCurrentEvent;
-const getCiServerInstanceId = (useOldCiServer = false) => {
-    return useOldCiServer ? `GHA/${_config.octaneSharedSpace}` : `GHA-${_config.owner}`;
-};
-const getCiServerName = async (useOldCiServer = false) => {
-    if (useOldCiServer) {
-        const sharedSpaceName = await octaneClient_1.default.getSharedSpaceName(_config.octaneSharedSpace);
-        return `GHA/${sharedSpaceName}`;
-    }
-    else {
-        return `GHA-${_config.owner}`;
-    }
-};
-const getExecutorName = () => {
-    return `GHA-${_config.owner}-${_config.repo}`;
-};
-const hasExecutorParameters = (configParameters) => {
-    if (!configParameters) {
-        return false;
-    }
-    const requiredParameters = ['suiteRunId', 'executionId', 'testsToRun'];
-    const foundNames = new Set(configParameters.map(param => param.name));
-    return requiredParameters.every(name => foundNames.has(name));
-};
 const isMinSyncIntervalElapsed = async (minSyncInterval) => {
     const lastSyncedTimestamp = await (0, utils_1.getSyncedTimestamp)();
     const currentTimestamp = new Date().getTime();
     const timeDiffSeconds = Math.floor((currentTimestamp - lastSyncedTimestamp) / 1000);
     return timeDiffSeconds > minSyncInterval;
 };
-const doTestSync = async (discoveryRes) => {
-    //const ciFteServer = await OctaneClient.getCiServerByType("fte_cloud");
-    const ciServerInstanceId = getCiServerInstanceId();
-    const ciServerName = await getCiServerName();
-    const configParameters = [];
-    const workflow = "Debug GitHub Action"; // TODO remove hardcoded value
-    const workflowFileName = "gha-ft-integration.yml"; // TODO remove hardcoded value
-    const branchName = "main"; // event.workflow_run?.head_branch;
-    const executorCiId = (0, executorService_1.buildExecutorCiId)(_config.owner, _config.repo, workflowFileName, branchName);
-    const executorName = (0, executorService_1.buildExecutorName)(_config.pipelineNamePattern, _config.owner, _config.repo, workflow, workflowFileName);
+const doTestSync = async (discoveryRes, workflowFileName, branch) => {
+    const ciServerInstanceId = `GHA-${_config.owner}`;
+    const ciServerName = `GHA-${_config.owner}`;
+    const executorCiId = `GHA-MBT-${_config.owner}.${_config.repo}.${branch}.${workflowFileName}`;
+    const executorName = executorCiId;
     const ciServer = await octaneClient_1.default.getOrCreateCiServer(ciServerInstanceId, ciServerName);
-    const ciJob = await (0, ciJobService_1.getOrCreateCiJob)(executorName, executorCiId, ciServer, branchName, configParameters);
-    _logger.debug(`Executor job: id: ${ciJob.id}, name: ${ciJob.name}, ci_id: ${ciJob.ci_id}`);
-    //const tr = await getOrCreateExecutor(executorName, ciJob.id, _config.testingTool, ciServer);
-    const tr = await octaneClient_1.default.createTestRunner(ciServer.id, Number(ciJob.id));
-    _logger.debug(`Test runner: ${tr.id}, name: ${tr.name}, subtype: ${tr.subtype}`);
-    //const x = await fetchTestsFromOctane(discoveryResult.getAllTests());
-    const executorId = tr.id;
-    //await mbtPrepDiscoveryRes4Sync(discoveryRes);
-    //await dispatchDiscoveryResults(executorId, discoveryRes);
+    const ciJob = await (0, ciJobService_1.getOrCreateCiJob)(executorName, executorCiId, ciServer, branch);
+    _logger.debug(`Ci Job id: ${ciJob.id}, name: ${ciJob.name}, ci_id: ${ciJob.ci_id}`);
+    const tr = await (0, executorService_1.getOrCreateTestRunner)(executorName, ciServer.id, ciJob);
+    _logger.debug(`ci_server.id: ${tr.ci_server.id}, ci_job.id: ${tr.ci_job.id}, scm_repository.id: ${tr.scm_repository.id}`);
+    await (0, mbtDiscoveryResultPreparer_1.mbtPrepDiscoveryRes4Sync)(tr.id, tr.scm_repository.id, discoveryRes);
+    await (0, mbtDiscoveryResultDispatcher_1.dispatchDiscoveryResults)(tr.id, tr.scm_repository.id, discoveryRes);
 };
 
 
@@ -76220,51 +76833,22 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.sendExecutorFinishEvent = exports.sendExecutorStartEvent = exports.buildExecutorCiId = exports.buildExecutorName = exports.getOrCreateExecutor = exports.getExecutor = void 0;
+exports.sendExecutorFinishEvent = exports.sendExecutorStartEvent = exports.buildExecutorName = exports.getOrCreateTestRunner = void 0;
 const octaneClient_1 = __importDefault(__nccwpck_require__(9212));
 const config_1 = __nccwpck_require__(1122);
 const logger_1 = __nccwpck_require__(7893);
 const ciEventsService_1 = __nccwpck_require__(39);
 const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('executorService');
-const getExecutor = async (ciServerId, name, subType) => {
-    let executors = await octaneClient_1.default.getExecutors(ciServerId, name, subType);
-    if (executors.length === 0) {
-        return null;
+const getOrCreateTestRunner = async (name, ciServerId, ciJob) => {
+    const subType = "uft_test_runner";
+    const entry = await octaneClient_1.default.getExecutor(ciServerId, name, subType);
+    if (entry) {
+        return entry;
     }
-    return executors[0];
+    return await octaneClient_1.default.createMbtTestRunner(name, ciServerId, ciJob);
 };
-exports.getExecutor = getExecutor;
-const getOrCreateExecutor = async (name, ciJobId, framework, ciServer) => {
-    const subType = "test_runner";
-    const executor = await getExecutor(ciServer.id, name, subType);
-    if (executor) {
-        return executor;
-    }
-    if (!ciServer.is_connected) {
-        _logger.warn(`CI server ${ciServer.instance_id} is not connected. Create executor action might fail ...`);
-    }
-    //scm_url: _config.repoUrl,
-    //scm_type: 2, // GIT
-    return await octaneClient_1.default.createExecutor({
-        name: name,
-        subtype: subType,
-        scm_repository: { id: 1004, "type": "scm_repository" },
-        framework: {
-            id: getFrameworkId(framework),
-            type: 'list_node'
-        },
-        ci_server: {
-            id: ciServer.id,
-            type: 'ci_server'
-        },
-        ci_job: {
-            id: ciJobId,
-            type: 'ci_job'
-        }
-    });
-};
-exports.getOrCreateExecutor = getOrCreateExecutor;
+exports.getOrCreateTestRunner = getOrCreateTestRunner;
 const sendExecutorStartEvent = async (event, executorName, executorCiId, parentCiId, buildCiId, runNumber, branchName, startTime, baseUrl, parameters, causes, ciServer) => {
     const startEvent = (0, ciEventsService_1.generateRootExecutorEvent)(event, executorName, executorCiId, buildCiId, runNumber, branchName, startTime, "started" /* CiEventType.STARTED */, parameters, causes, "CHILD" /* MultiBranchType.CHILD */, parentCiId, "internal" /* PhaseType.INTERNAL */);
     await octaneClient_1.default.sendEvents([startEvent], ciServer.instance_id, baseUrl);
@@ -76283,12 +76867,6 @@ const buildExecutorName = (executorNamePattern, repositoryOwner, repositoryName,
         .replace('${workflow_file_name}', workflowFileName);
 };
 exports.buildExecutorName = buildExecutorName;
-const buildExecutorCiId = (repositoryOwner, repositoryName, workflowFileName, branchName) => {
-    return branchName
-        ? `${repositoryOwner}/${repositoryName}/${workflowFileName}/executor/${branchName}`
-        : `${repositoryOwner}/${repositoryName}/${workflowFileName}/executor`;
-};
-exports.buildExecutorCiId = buildExecutorCiId;
 const getFrameworkId = (framework) => {
     let frameworkId;
     switch (framework) {
@@ -76835,6 +77413,14 @@ module.exports = require("node:crypto");
 
 "use strict";
 module.exports = require("node:events");
+
+/***/ }),
+
+/***/ 6760:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:path");
 
 /***/ }),
 

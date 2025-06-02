@@ -37,8 +37,6 @@ interface Config {
   octaneClientId: string;
   octaneClientSecret: string;
   githubToken: string;
-  serverBaseUrl: string;
-  pipelineNamePattern: string;
   testingTool: string;
   minSyncInterval: number;
   owner: string;
@@ -64,8 +62,6 @@ try {
     octaneClientId: getInput('octaneClientId').trim(),
     octaneClientSecret: getInput('octaneClientSecret').trim(),
     githubToken: getInput('githubToken').trim(),
-    serverBaseUrl: serverUrl,
-    pipelineNamePattern: getInput('pipelineNamePattern'),
     testingTool: getInput('testingToolType').toLowerCase().trim(),
     minSyncInterval: Number.parseInt(getInput('minSyncInterval').trim()),
     owner: owner,

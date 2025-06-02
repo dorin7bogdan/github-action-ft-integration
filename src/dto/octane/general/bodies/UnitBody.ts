@@ -27,19 +27,19 @@
  * limitations under the License.
  */
 
-import Folder from "../Folder";
+import Reference from "../Reference";
 
 export default interface UnitBody {
   description?: string|null;
   id?: string;
   type?: string;
   name?: string;
-  parent?: Folder|null;
+  parent?: Reference|null;
   subtype?: string;
   automation_status: any;
   repository_path?: string|null;
-  testing_tool_type?: string|null;
-  test_runner?: string|null;
+  testing_tool_type?: string | null;
+  test_runner?: Reference | null;
 }
 
 export interface UnitParamBody {
@@ -49,6 +49,10 @@ export interface UnitParamBody {
   value?: string;
   subtype?: string;
   model_item: any; //UnitBody
-  parameter_type: object;
-  default_value?: string;
+  parameter_type: ParamTypeBody;
+}
+
+export interface ParamTypeBody {
+  id?: string;
+  type: string;
 }

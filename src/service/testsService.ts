@@ -29,11 +29,11 @@
 import OctaneClient from '../client/octaneClient';
 import { Logger } from '../utils/logger';
 import AutomatedTest from '../dto/ft/AutomatedTest';
-import { Entity } from '../dto/octane/general/Entity';
+import Test from '../dto/octane/general/Test';
 
 const _logger: Logger = new Logger('testsService');
 
-const fetchTestsFromOctane = async (tests: ReadonlyArray<AutomatedTest>): Promise<Map<string, Entity> | null> => {
+const fetchTestsFromOctane = async (tests: ReadonlyArray<AutomatedTest>): Promise<Map<string, Test> | null> => {
   const testNames = tests.map(test => test.name);
   const entries = await OctaneClient.fetchAutomatedTestsAgainstScmRepository(testNames);
   if (!entries || entries.size === 0) {

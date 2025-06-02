@@ -31,7 +31,7 @@ import CiParameter from '../../events/CiParameter';
 import CiServerBody from './CiServerBody';
 
 export default interface CiJobBody {
-  id?: string;
+  id?: number;
   type?: string;
   name?: string;
   jobId?: string;

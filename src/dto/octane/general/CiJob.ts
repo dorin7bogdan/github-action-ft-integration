@@ -31,7 +31,7 @@ import CiExecutor from './CiExecutor';
 import CiServer from './CiServer';
 
 export default interface CiJob {
-  id: string;
+  id: number;
   name: string;
   ci_id: string;
   ci_server?: CiServer;

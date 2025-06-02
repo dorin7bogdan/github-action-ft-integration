@@ -27,9 +27,14 @@
  * limitations under the License.
  */
 
+import Reference from "./Reference";
+
 export default interface CiExecutor {
-  id: string;
+  id: number;
   name: string;
   subtype: string;
   framework: string;
+  ci_server: Reference;
+  scm_repository: Reference;
+  ci_job: Reference;
 }

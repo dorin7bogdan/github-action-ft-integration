@@ -19,12 +19,6 @@ inputs:
   gitHubToken:
     description: 'GitHub PAT'
     required: true
-  serverBaseUrl:
-    description: 'URL of the organization/repository in GitHub'
-    required: false
-  pipelineNamePattern:
-    description: 'Pattern to build pipeline names'
-    required: true
   testingToolType:
     description: 'Testing framework to use for the test runner'
     required: false

@@ -27,10 +27,13 @@
  * limitations under the License.
  */
 
-export default interface Folder {
-  id: number;
-  type?: string;
-  name: string;
+export default interface Folder extends BaseFolder {
   parent?: Folder;
   subtype?: string;
+}
+
+export interface BaseFolder {
+  id: number;
+  type: string;
+  name: string;
 }

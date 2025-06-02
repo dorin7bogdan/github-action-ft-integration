@@ -32,20 +32,21 @@ import { EntityConstants } from '../dto/octane/general/EntityConstants';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import { OctaneStatus } from '../dto/ft/OctaneStatus';
 import DiscoveryResult from '../discovery/DiscoveryResult';
-import Folder from '../dto/octane/general/Folder';
+import Folder, { BaseFolder } from '../dto/octane/general/Folder';
 import UftoTestParam from '../dto/ft/UftoTestParam';
 import { UftoParamDirection } from '../dto/ft/UftoParamDirection';
 import UnitBody, { UnitParamBody } from '../dto/octane/general/bodies/UnitBody';
 import { extractScmTestPath } from '../utils/utils';
 import Unit from '../dto/octane/general/Unit';
 import FolderBody from '../dto/octane/general/bodies/FolderBody';
+import Reference from '../dto/octane/general/Reference';
 const LIST_NODE = "list_node";
 const INPUT = "input";
 const OUTPUT = "output";
 const _logger: Logger = new Logger('mbtDiscoveryResultDispatcher');
 
-const getAutoDiscoveredFolder = async (executorId: number): Promise<Folder> => {
-  let autoDiscoveredFolder: Folder | null = await OctaneClient.getRunnerDedicatedFolder(executorId);
+const getAutoDiscoveredFolder = async (executorId: number): Promise<BaseFolder> => {
+  let autoDiscoveredFolder: BaseFolder | null = await OctaneClient.getRunnerDedicatedFolder(executorId);
   if (autoDiscoveredFolder == null) // TODO check if this is the expected behavior
     autoDiscoveredFolder = await OctaneClient.getGitMirrorFolder();
 
@@ -55,7 +56,7 @@ const getAutoDiscoveredFolder = async (executorId: number): Promise<Folder> => {
   return autoDiscoveredFolder;
 }
 
-const createParentFolders = async (newActions: UftoTestAction[], autoDiscoveredFolder: Folder): Promise<Map<string, Folder>> => {
+const createParentFolders = async (newActions: UftoTestAction[], autoDiscoveredFolder: BaseFolder): Promise<Map<string, Folder>> => {
   // find existing sub folders. each folder's name is the test name that contains the actions
   const existingSubFolders = await OctaneClient.fetchChildFolders(autoDiscoveredFolder);
   const existingSubFoldersMap: Map<string, Folder> = new Map<string, Folder>(
@@ -92,7 +93,7 @@ const updateFolders = async (folders: Folder[], oldName2newNameMap: Map<string, 
   if (folders?.length) {
     _logger.debug(`Updating ${folders.length} folders ...`);
     const foldersToUpdate: FolderBody[] = folders.map((f: Folder) => {
-      return { id: f.id.toString(), name: oldName2newNameMap.get(f.name) } as FolderBody;
+      return { id: `${f.id}`, name: oldName2newNameMap.get(f.name) } as FolderBody;
     });
     await OctaneClient.updateFolders(foldersToUpdate);
   }
@@ -179,30 +180,32 @@ const createUnitParam = (param: UftoTestParam, unit: UnitBody): UnitParamBody =>
     type: EntityConstants.MbtUnitParameter.ENTITY_NAME,
     subtype: EntityConstants.MbtUnitParameter.ENTITY_SUBTYPE,
     name: param.name,
-    model_item: unit,
+    model_item: { repository_path: unit.repository_path }, //TODO check if this is correct
     parameter_type: { id: `list_node.entity_parameter_type.${direction}`, type: LIST_NODE },
-    default_value: param.defaultValue,
+    value: param.defaultValue,
   };
 }
 
-const createUnitEntity = (action: UftoTestAction, parentFolder: Folder | null, unitParams: UnitParamBody[] | null = null): UnitBody => {
-  if (parentFolder == null && action.id == null) {
+const buildUnit = (executorId: number, action: UftoTestAction, parentId: number|null, unitParams: UnitParamBody[] | null = null): UnitBody => {
+  if (!parentId && !action.id) {
     throw new Error("Received null parent folder, when trying to create a new unit entity");
   }
 
+  const parentRef: Reference|null = parentId ? { id: parentId, type: EntityConstants.ModelFolder.ENTITY_NAME } : null;
   let unit: UnitBody = {
     name: !action.logicalName || action.logicalName.startsWith("Action") ? `${action.testName}:${action.name}` : action.logicalName,
     type: EntityConstants.MbtUnit.ENTITY_NAME,
-    description: action.description,
     subtype: EntityConstants.MbtUnit.ENTITY_SUBTYPE,
     automation_status: { id: "list_node.automation_status.automated", type: LIST_NODE },
     repository_path: action.repositoryPath,
-    parent: parentFolder
-    //test_runner: TODO
-    //testing_tool_type: TODO
+    parent: parentRef,
+    test_runner: { id: executorId, type: "executor" }
+    //testing_tool_type: TODO might not be needed
   };
+  action.id && (unit.id = action.id); // if the action already exists, we need to set its ID
+  action.description && (unit.description = action.description);
 
-  //TODO ask why we need to add the unit to each param ?
+  //TODO check why we need to add the unit to each param ?
   if (unitParams) {
     action.parameters?.forEach(p => {
       unitParams.push(createUnitParam(p, unit));
@@ -212,7 +215,7 @@ const createUnitEntity = (action: UftoTestAction, parentFolder: Folder | null, u
   return unit;
 }
 
-const dispatchNewActions = async (executorId: number, newActions: UftoTestAction[], autoDiscoveredFolder: Folder): Promise<boolean> => {
+const dispatchNewActions = async (executorId: number, newActions: UftoTestAction[], autoDiscoveredFolder: BaseFolder): Promise<boolean> => {
   if (newActions?.length) {
     const foldersMap = await createParentFolders(newActions, autoDiscoveredFolder);
     const paramsToAdd: UnitParamBody[] = []; // add external parameter entities list to be filled by each action creation
@@ -228,7 +231,7 @@ const dispatchNewActions = async (executorId: number, newActions: UftoTestAction
         _logger.error(`Parent folder for test ${action.testName} not found`);
         continue;
       }
-      unitsToAdd.push(createUnitEntity(action, parentFolder, paramsToAdd));
+      unitsToAdd.push(buildUnit(executorId, action, parentFolder.id, paramsToAdd));
     }
     await OctaneClient.createUnits(unitsToAdd, paramsToAdd);
   }
@@ -254,7 +257,7 @@ const dispatchDeletedActions = async (deletedActions: UftoTestAction[]): Promise
         automation_status: { id: "list_node.automation_status.not_automated", type: LIST_NODE }
       };
       unit.test_runner = null; // TODO currently in Tech-preview
-      unit.testing_tool_type = null; // TODO currently in Tech-preview
+      //unit.testing_tool_type = null; // TODO currently in Tech-preview
       unitsToDelete.push(unit);
     }
     await OctaneClient.updateUnits(unitsToDelete);
@@ -263,14 +266,14 @@ const dispatchDeletedActions = async (deletedActions: UftoTestAction[]): Promise
   return true;
 }
 
-const dispatchUpdatedActions = async (scmRepositoryId: number, updatedActions: UftoTestAction[], autoDiscoveredFolder: Folder): Promise<boolean> => {
+const dispatchUpdatedActions = async (executorId: number, scmRepositoryId: number, updatedActions: UftoTestAction[], autoDiscoveredFolder: Folder): Promise<boolean> => {
   if (updatedActions?.length) {
     _logger.info(`Updating ${updatedActions.length} actions ...`);
     const existingFoldersMap = await updateParentFolders(scmRepositoryId, updatedActions, autoDiscoveredFolder);
     // convert actions to unit entities
     const unitsToUpdate: UnitBody[] = updatedActions.map(action => {
       const parentFolder = action.testName ? existingFoldersMap.get(action.testName) ?? null : null;
-      return createUnitEntity(action, parentFolder);
+      return buildUnit(executorId, action, parentFolder?.id ?? null);
     });
 
     // update units
@@ -280,7 +283,7 @@ const dispatchUpdatedActions = async (scmRepositoryId: number, updatedActions: U
   return true;
 }
 
-const dispatchDiscoveryResults = async (executorId: number, result: DiscoveryResult) => {
+const dispatchDiscoveryResults = async (executorId: number, scmRepositoryId: number, result: DiscoveryResult) => {
   _logger.info('Dispatching discovery results ...');
   const allActions = result.getAllTests().flatMap(aTest => aTest.actions);
   const actionsByStatusMap: Map<OctaneStatus, UftoTestAction[]> = allActions.reduce((acc, action) => {
@@ -308,7 +311,7 @@ const dispatchDiscoveryResults = async (executorId: number, result: DiscoveryRes
 
   let updatedActionsSynced = true;
   if (actionsByStatusMap.has(OctaneStatus.MODIFIED)) {
-    updatedActionsSynced = await dispatchUpdatedActions(executorId, actionsByStatusMap.get(OctaneStatus.MODIFIED)!, autoDiscoveredFolder);
+    updatedActionsSynced = await dispatchUpdatedActions(executorId, scmRepositoryId, actionsByStatusMap.get(OctaneStatus.MODIFIED)!, autoDiscoveredFolder);
   }
 
   return newActionsSynced && delActionsSynced && updatedActionsSynced;

@@ -2,7 +2,7 @@
  * Copyright 2016-2025 Open Text.
  *
  * The only warranties for products and services of Open Text and
- * its affiliates and licensors (“Open Text”) are as may be set forth
+ * its affiliates and licensors (ï¿½Open Textï¿½) are as may be set forth
  * in the express warranty statements accompanying such products and services.
  * Nothing herein should be construed as constituting an additional warranty.
  * Open Text shall not be liable for technical or editorial errors or
@@ -43,7 +43,7 @@ const { ID, REPOSITORY_PATH, SCM_REPOSITORY } = EntityConstants.MbtUnit;
 const mbtPrepDiscoveryRes4Sync = async (executorId: number, scmRepositoryId: number, discoveryRes: DiscoveryResult) => {
   if (discoveryRes.isFullSync()) {
     _logger.info(`Preparing full sync dispatch with MBT for executor ${executorId}`);
-    const units = await fetchUnitsForScmRepository(scmRepositoryId);
+    const units = await fetchUnitsByScmRepository(scmRepositoryId);
     const existingUnitsByRepo = units.reduce((acc, unit) => {
       const key = unit.repository_path;
       acc.set(key, unit);
@@ -58,16 +58,15 @@ const mbtPrepDiscoveryRes4Sync = async (executorId: number, scmRepositoryId: num
   }
 }
 
-const fetchUnitsForScmRepository = async (scmRepositoryId: number): Promise<Unit[]> => {
-  const qry1 = Query.field(REPOSITORY_PATH).notEqual(null)
-    .and(Query.field(SCM_REPOSITORY).equal(Query.field(ID).equal(scmRepositoryId))); // TODO check if this is required
-  const units = await OctaneClient.fetchUnits(qry1);
-  return units;
+const fetchUnitsByScmRepository = async (scmRepositoryId: number): Promise<Unit[]> => {
+  const qry1 = Query.field(SCM_REPOSITORY).equal(Query.field(ID).equal(scmRepositoryId))
+    .and(Query.field(REPOSITORY_PATH).notEqual(Query.NULL));  // folders are also model items, but they don't have a repository path (it is null, also a different subtype)
+  return await OctaneClient.fetchUnits(qry1);
 }
 
 const convertUnitToAction = (unit: Unit, octStatus: OctaneStatus): UftoTestAction => {
   return {
-    id: unit.id.toString(),
+    id: `${unit.id}`,
     name: unit.name,
     logicalName: unit.name,
     octaneStatus: octStatus,
@@ -202,7 +201,7 @@ const removeExistingUnits = (discoveryRes: DiscoveryResult, octaneUnitsMap: Map<
       if (!u) return true; // Keep the action if no Octane Unit is found
       if (u.test_runner) return false; // Remove the action if test_runner exists
       action.octaneStatus = OctaneStatus.MODIFIED;
-      action.id = u.id.toString();
+      action.id = `${u.id}`;
       return true; // Keep the action
     });
   });
@@ -285,7 +284,7 @@ const handleUpdatedTestUpdatedActionCase = (
         if (action.logicalName!.toLowerCase() === logicalName) {
           action.octaneStatus = OctaneStatus.NONE;
         } else {
-          action.id = unit.id.toString();
+          action.id = `${unit.id}`;
           action.octaneStatus = OctaneStatus.MODIFIED;
         }
 
@@ -365,7 +364,7 @@ const handleMovedTests = async (updatedTests: ReadonlyArray<AutomatedTest>) => {
       .forEach(action => {
         const unit = actionNameToUnitMap.get(action.name);
         if (unit) {
-          action.id = unit.id.toString();
+          action.id = `${unit.id}`;
           action.octaneStatus = OctaneStatus.MODIFIED;
           action.moved = true;
           action.oldTestName = aTest.oldName;

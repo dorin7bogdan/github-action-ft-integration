@@ -27,8 +27,7 @@
  * limitations under the License.
  */
 
-import CiJobBody from './CiJobBody';
-import CiServerBody from './CiServerBody';
+import Reference from '../Reference';
 import FrameworkBody from './FrameworkBody';
 
 export default interface CiExecutorBody {
@@ -38,6 +37,7 @@ export default interface CiExecutorBody {
   scm_url?: string;
   scm_type?: number;
   framework: FrameworkBody;
-  ci_server: CiServerBody;
-  ci_job?: CiJobBody;
+  ci_server: Reference;
+  ci_job?: Reference;
+  jobCiId: string;
 }
