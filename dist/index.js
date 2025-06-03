@@ -76396,7 +76396,7 @@ const handleCurrentEvent = async () => {
     _logger.info('BEGIN handleEvent ...');
     const event = github_1.context.payload;
     const eventName = github_1.context.eventName;
-    /* event && _logger.debug(`event = ${JSON.stringify(event)}`); */
+    event && _logger.debug(`event = ${JSON.stringify(event)}`);
     const eventType = (0, ciEventsService_1.getEventType)(event?.action || eventName);
     if (eventType === "unknown" /* ActionsEventType.UNKNOWN_EVENT */) {
         _logger.info('Unknown event type');
