@@ -30,10 +30,13 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { UftoTestType } from '../dto/ft/UftoTestType';
-import { context } from '@actions/github';
+import { context, getOctokit } from '@actions/github';
 import * as git from 'isomorphic-git';
 import { Logger } from './logger';
 import AutomatedTest from '../dto/ft/AutomatedTest';
+import * as core from '@actions/core';
+import { getConfig } from '../config/config';
+const _config = getConfig();
 
 // File to store the string (hidden file to avoid cluttering the repo)
 const SYNCED_COMMIT_SHA = path.join(process.cwd(), '.synced-commit-sha');
@@ -43,6 +46,35 @@ const _TSP = '.tsp';
 const _ST = '.st';
 const UTF8 = 'utf8';
 const _logger: Logger = new Logger('utils');
+
+async function getWorkflowPath(headSHA: string): Promise<string> {
+  const token = core.getInput('githubToken', { required: true });
+  const octokit = getOctokit(token);
+
+  try {
+    const { data: workflowRuns } = await octokit.rest.actions.listWorkflowRunsForRepo({
+      owner: _config.owner,
+      repo: _config.repo,
+      event: 'push',
+      head_sha: headSHA,
+      status: 'in_progress'
+    });
+
+    if (workflowRuns.workflow_runs.length === 0) {
+      throw new Error(`No in-progress workflow runs found for SHA ${headSHA}`);
+    }
+
+    const currentRunId = context.runId;
+    const currentRun = workflowRuns.workflow_runs.find(run => run.id === currentRunId);
+    if (!currentRun) {
+      throw new Error(`Current workflow run (ID: ${currentRunId}) not found for SHA ${headSHA}`);
+    }
+    return currentRun.path; // e.g., .github/workflows/gha-ft-integration.yml
+  } catch (error) {
+    console.error('Error fetching workflow path:', error);
+    throw error; // Re-throw to allow caller to handle
+  }
+}
 
 async function getHeadCommitSha(dir: string): Promise<string> {
   return context.sha ?? git.resolveRef({ fs, dir, ref: 'HEAD' });
@@ -225,4 +257,4 @@ const extractActionNameFromActionPath = (repositoryPath: string): string => {
   return repoPathParts[repoPathParts.length - 1]; // the last part of the repository path without logical name is the action name
 }
 
-export { getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, extractWorkflowFileName, isVersionGreaterOrEqual, sleep, escapeQueryVal, getTestPathPrefix, extractScmTestPath, extractScmPathFromActionPath, extractActionLogicalNameFromActionPath, extractActionNameFromActionPath };
+export { getWorkflowPath, getHeadCommitSha, isBlank, isTestMainFile, getTestType, getParentFolderFullPath, saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, extractWorkflowFileName, isVersionGreaterOrEqual, sleep, escapeQueryVal, getTestPathPrefix, extractScmTestPath, extractScmPathFromActionPath, extractActionLogicalNameFromActionPath, extractActionNameFromActionPath };

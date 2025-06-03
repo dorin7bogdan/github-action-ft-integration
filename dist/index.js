@@ -76403,7 +76403,13 @@ const handleCurrentEvent = async () => {
         return;
     }
     _logger.info(`eventType = ${event?.action || eventName}`);
-    const workflowFilePath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
+    let workflowFilePath;
+    if (eventType === "push" /* ActionsEventType.PUSH */) {
+        workflowFilePath = await (0, utils_1.getWorkflowPath)(event.after);
+    }
+    else {
+        workflowFilePath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
+    }
     //const workflowName = event.workflow?.name;
     //const workflowRunId = event.workflow_run?.id;
     const ref = event.ref;
@@ -76420,6 +76426,7 @@ const handleCurrentEvent = async () => {
     if (!workflowFilePath) {
         throw new Error('Event should contain workflow file path!');
     }
+    const workflowFilename = node_path_1.default.basename(workflowFilePath);
     _logger.info(`Current repository URL: ${_config.repoUrl}`);
     const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
     _logger.info(`Working directory: ${workDir}`);
@@ -76477,7 +76484,6 @@ const handleCurrentEvent = async () => {
                 }
             }
             // TODO sync the tests with Octane
-            const workflowFilename = node_path_1.default.basename(workflowFilePath);
             await doTestSync(discoveryRes, workflowFilename, branchName);
             const newCommit = discoveryRes.getNewCommit();
             if (newCommit !== oldCommit) {
@@ -77086,6 +77092,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.extractActionNameFromActionPath = exports.extractActionLogicalNameFromActionPath = exports.extractScmPathFromActionPath = exports.extractScmTestPath = exports.getTestPathPrefix = exports.escapeQueryVal = exports.sleep = exports.isVersionGreaterOrEqual = exports.extractWorkflowFileName = void 0;
+exports.getWorkflowPath = getWorkflowPath;
 exports.getHeadCommitSha = getHeadCommitSha;
 exports.isBlank = isBlank;
 exports.isTestMainFile = isTestMainFile;
@@ -77100,6 +77107,9 @@ const UftoTestType_1 = __nccwpck_require__(5720);
 const github_1 = __nccwpck_require__(3228);
 const git = __importStar(__nccwpck_require__(3667));
 const logger_1 = __nccwpck_require__(7893);
+const core = __importStar(__nccwpck_require__(7484));
+const config_1 = __nccwpck_require__(1122);
+const _config = (0, config_1.getConfig)();
 // File to store the string (hidden file to avoid cluttering the repo)
 const SYNCED_COMMIT_SHA = path.join(process.cwd(), '.synced-commit-sha');
 const SYNCED_TIMESTAMP = path.join(process.cwd(), '.synced-timestamp');
@@ -77108,6 +77118,32 @@ const _TSP = '.tsp';
 const _ST = '.st';
 const UTF8 = 'utf8';
 const _logger = new logger_1.Logger('utils');
+async function getWorkflowPath(headSHA) {
+    const token = core.getInput('githubToken', { required: true });
+    const octokit = (0, github_1.getOctokit)(token);
+    try {
+        const { data: workflowRuns } = await octokit.rest.actions.listWorkflowRunsForRepo({
+            owner: _config.owner,
+            repo: _config.repo,
+            event: 'push',
+            head_sha: headSHA,
+            status: 'in_progress'
+        });
+        if (workflowRuns.workflow_runs.length === 0) {
+            throw new Error(`No in-progress workflow runs found for SHA ${headSHA}`);
+        }
+        const currentRunId = github_1.context.runId;
+        const currentRun = workflowRuns.workflow_runs.find(run => run.id === currentRunId);
+        if (!currentRun) {
+            throw new Error(`Current workflow run (ID: ${currentRunId}) not found for SHA ${headSHA}`);
+        }
+        return currentRun.path; // e.g., .github/workflows/gha-ft-integration.yml
+    }
+    catch (error) {
+        console.error('Error fetching workflow path:', error);
+        throw error; // Re-throw to allow caller to handle
+    }
+}
 async function getHeadCommitSha(dir) {
     return github_1.context.sha ?? git.resolveRef({ fs, dir, ref: 'HEAD' });
 }

@@ -33,7 +33,7 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
-import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp } from './utils/utils';
+import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, getWorkflowPath } from './utils/utils';
 import { context } from '@actions/github';
 import { getOrCreateTestRunner } from './service/executorService';
 import CiParameter from './dto/octane/events/CiParameter';
@@ -64,7 +64,13 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
   _logger.info(`eventType = ${event?.action || eventName}`);
 
-  const workflowFilePath: string | undefined = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
+  let workflowFilePath: string | undefined;
+  if (eventType === ActionsEventType.PUSH) {
+    workflowFilePath = await getWorkflowPath(event.after!);
+  } else {
+    workflowFilePath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
+  }
+
   //const workflowName = event.workflow?.name;
   //const workflowRunId = event.workflow_run?.id;
   const ref: string | undefined = event.ref;
@@ -83,6 +89,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   if (!workflowFilePath) {
     throw new Error('Event should contain workflow file path!');
   }
+  const workflowFilename = path.basename(workflowFilePath!);
 
   _logger.info(`Current repository URL: ${_config.repoUrl}`);
 
@@ -144,7 +151,6 @@ export const handleCurrentEvent = async (): Promise<void> => {
       }
 
       // TODO sync the tests with Octane
-      const workflowFilename = path.basename(workflowFilePath!);
       await doTestSync(discoveryRes, workflowFilename, branchName!);
       const newCommit = discoveryRes.getNewCommit();
       if (newCommit !== oldCommit) {
