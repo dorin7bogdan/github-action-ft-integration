@@ -76406,7 +76406,17 @@ const handleCurrentEvent = async () => {
     const workflowFilePath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
     //const workflowName = event.workflow?.name;
     //const workflowRunId = event.workflow_run?.id;
-    const branchName = event.workflow_run?.head_branch;
+    const ref = event.ref;
+    let branchName;
+    if (ref && ref.startsWith('refs/heads/')) {
+        branchName = ref.replace('refs/heads/', '');
+    }
+    else {
+        branchName = event.workflow_run?.head_branch; // Fallback for other event types
+    }
+    if (!branchName) {
+        throw new Error('Could not determine branch name!');
+    }
     if (!workflowFilePath) {
         throw new Error('Event should contain workflow file path!');
     }
