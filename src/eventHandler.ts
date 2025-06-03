@@ -64,7 +64,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
   _logger.info(`eventType = ${event?.action || eventName}`);
 
-  const workflowFilePath = event.workflow?.path;
+  const workflowFilePath: string | undefined = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
   //const workflowName = event.workflow?.name;
   //const workflowRunId = event.workflow_run?.id;
   const branchName = event.workflow_run?.head_branch;

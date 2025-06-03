@@ -39,7 +39,7 @@ interface GitHubRepository extends PayloadRepository {
 
 export default interface ActionsEvent extends WebhookPayload {
   repository?: GitHubRepository;
-  workflow?: Workflow;
+  workflow?: Workflow | string;
   workflow_run?: {
     id: number;
     conclusion?: string;
