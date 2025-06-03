@@ -86,7 +86,7 @@ const handleAddedTests = async (discoveryRes: DiscoveryResult) => {
   const newActionsRepositoryPaths = newTests
     .filter(automatedTest => !automatedTest.isMoved)
     .flatMap(automatedTest => automatedTest.actions)
-    .map(action => action.repositoryPath);
+    .map(a => escapeQueryVal(a.repositoryPath!));
 
   if (newActionsRepositoryPaths.length === 0) {
     _logger.warn('No repository paths found for new tests.');

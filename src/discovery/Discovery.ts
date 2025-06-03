@@ -725,14 +725,14 @@ export default class Discovery {
         silent: false,          // Keep false for debugging
         env: filteredEnv,       // Use filtered env with only string values
         listeners: {            // Common listeners for all Git commands
-          //stderr: (data: Buffer) => print(data) // for debug only
+          stderr: (data: Buffer) => printWarn(data) // for debug only
         }
       };
 
-      function print (data: Buffer) {
+      function printWarn (data: Buffer) {
         if (data) {
           const msg = data.toString().trim();
-          _logger.info(msg);
+          _logger.warn(msg);
         }
       };
 

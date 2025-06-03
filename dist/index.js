@@ -75053,14 +75053,14 @@ class Discovery {
                 ignoreReturnCode: true, // Ignore non-zero exit codes by default
                 silent: false, // Keep false for debugging
                 env: filteredEnv, // Use filtered env with only string values
-                listeners: { // Common listeners for all Git commands
-                //stderr: (data: Buffer) => print(data) // for debug only
+                listeners: {
+                    stderr: (data) => printWarn(data) // for debug only
                 }
             };
-            function print(data) {
+            function printWarn(data) {
                 if (data) {
                     const msg = data.toString().trim();
-                    _logger.info(msg);
+                    _logger.warn(msg);
                 }
             }
             ;
@@ -75861,7 +75861,7 @@ const handleAddedTests = async (discoveryRes) => {
     const newActionsRepositoryPaths = newTests
         .filter(automatedTest => !automatedTest.isMoved)
         .flatMap(automatedTest => automatedTest.actions)
-        .map(action => action.repositoryPath);
+        .map(a => (0, utils_1.escapeQueryVal)(a.repositoryPath));
     if (newActionsRepositoryPaths.length === 0) {
         _logger.warn('No repository paths found for new tests.');
         return;
