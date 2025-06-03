@@ -55,7 +55,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const event: ActionsEvent = context.payload;
   const eventName = context.eventName;
 
-  event && _logger.debug(`event = ${JSON.stringify(event)}`);
+  //event && _logger.debug(`event = ${JSON.stringify(event)}`);
 
   const eventType = getEventType(event?.action || eventName);
   if (eventType === ActionsEventType.UNKNOWN_EVENT) {
@@ -64,11 +64,11 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
   _logger.info(`eventType = ${event?.action || eventName}`);
 
-  let workflowFilePath: string | undefined;
+  let workflowPath: string | undefined;
   if (eventType === ActionsEventType.PUSH) {
-    workflowFilePath = await getWorkflowPath(event.after!);
+    workflowPath = await getWorkflowPath(event.after!);
   } else {
-    workflowFilePath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
+    workflowPath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
   }
 
   //const workflowName = event.workflow?.name;
@@ -86,10 +86,10 @@ export const handleCurrentEvent = async (): Promise<void> => {
     throw new Error('Could not determine branch name!');
   }
 
-  if (!workflowFilePath) {
+  if (!workflowPath) {
     throw new Error('Event should contain workflow file path!');
   }
-  const workflowFilename = path.basename(workflowFilePath!);
+  const workflowFilename = path.basename(workflowPath, path.extname(workflowPath));
 
   _logger.info(`Current repository URL: ${_config.repoUrl}`);
 

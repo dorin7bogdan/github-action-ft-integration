@@ -165,6 +165,7 @@ export default class Discovery {
         await this.doFullDiscovery();
       }
     }
+    _logger.info(`isFullSync = ${isFullSync}`);
     _logger.info('END Scanning ...');
     return new DiscoveryResult(newCommit, this._tests, this._scmResxFiles, isFullSync);
   }

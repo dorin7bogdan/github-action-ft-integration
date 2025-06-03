@@ -74315,7 +74315,7 @@ try {
         octaneClientId: (0, core_1.getInput)('octaneClientId').trim(),
         octaneClientSecret: (0, core_1.getInput)('octaneClientSecret').trim(),
         githubToken: (0, core_1.getInput)('githubToken').trim(),
-        testingTool: (0, core_1.getInput)('testingToolType').toLowerCase().trim(),
+        testingTool: "mbt", //getInput('testingToolType').toLowerCase().trim(),
         minSyncInterval: Number.parseInt((0, core_1.getInput)('minSyncInterval').trim()),
         owner: owner,
         repo: repo,
@@ -74529,6 +74529,7 @@ class Discovery {
                 await this.doFullDiscovery();
             }
         }
+        _logger.info(`isFullSync = ${isFullSync}`);
         _logger.info('END Scanning ...');
         return new DiscoveryResult_1.default(newCommit, this._tests, this._scmResxFiles, isFullSync);
     }
@@ -75828,6 +75829,7 @@ const mbtPrepDiscoveryRes4Sync = async (executorId, scmRepositoryId, discoveryRe
         removeExistingUnits(discoveryRes, existingUnitsByRepo);
     }
     else {
+        _logger.info(`Preparing incremental sync dispatch with MBT for executor ${executorId}`);
         handleDeletedTests(discoveryRes.getDeletedTests());
         handleAddedTests(discoveryRes);
         handleUpdatedTests(discoveryRes.getUpdatedTests());
@@ -76396,19 +76398,19 @@ const handleCurrentEvent = async () => {
     _logger.info('BEGIN handleEvent ...');
     const event = github_1.context.payload;
     const eventName = github_1.context.eventName;
-    event && _logger.debug(`event = ${JSON.stringify(event)}`);
+    //event && _logger.debug(`event = ${JSON.stringify(event)}`);
     const eventType = (0, ciEventsService_1.getEventType)(event?.action || eventName);
     if (eventType === "unknown" /* ActionsEventType.UNKNOWN_EVENT */) {
         _logger.info('Unknown event type');
         return;
     }
     _logger.info(`eventType = ${event?.action || eventName}`);
-    let workflowFilePath;
+    let workflowPath;
     if (eventType === "push" /* ActionsEventType.PUSH */) {
-        workflowFilePath = await (0, utils_1.getWorkflowPath)(event.after);
+        workflowPath = await (0, utils_1.getWorkflowPath)(event.after);
     }
     else {
-        workflowFilePath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
+        workflowPath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
     }
     //const workflowName = event.workflow?.name;
     //const workflowRunId = event.workflow_run?.id;
@@ -76423,10 +76425,10 @@ const handleCurrentEvent = async () => {
     if (!branchName) {
         throw new Error('Could not determine branch name!');
     }
-    if (!workflowFilePath) {
+    if (!workflowPath) {
         throw new Error('Event should contain workflow file path!');
     }
-    const workflowFilename = node_path_1.default.basename(workflowFilePath);
+    const workflowFilename = node_path_1.default.basename(workflowPath, node_path_1.default.extname(workflowPath));
     _logger.info(`Current repository URL: ${_config.repoUrl}`);
     const workDir = process.cwd(); //.env.GITHUB_WORKSPACE || '.';
     _logger.info(`Working directory: ${workDir}`);

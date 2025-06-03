@@ -51,6 +51,7 @@ const mbtPrepDiscoveryRes4Sync = async (executorId: number, scmRepositoryId: num
     }, new Map<string, Unit>());
     removeExistingUnits(discoveryRes, existingUnitsByRepo);
   } else {
+    _logger.info(`Preparing incremental sync dispatch with MBT for executor ${executorId}`);
     handleDeletedTests(discoveryRes.getDeletedTests());
     handleAddedTests(discoveryRes);
     handleUpdatedTests(discoveryRes.getUpdatedTests());

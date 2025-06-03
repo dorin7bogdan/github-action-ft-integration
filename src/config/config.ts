@@ -62,7 +62,7 @@ try {
     octaneClientId: getInput('octaneClientId').trim(),
     octaneClientSecret: getInput('octaneClientSecret').trim(),
     githubToken: getInput('githubToken').trim(),
-    testingTool: getInput('testingToolType').toLowerCase().trim(),
+    testingTool: "mbt",//getInput('testingToolType').toLowerCase().trim(),
     minSyncInterval: Number.parseInt(getInput('minSyncInterval').trim()),
     owner: owner,
     repo: repo,
