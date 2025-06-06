@@ -267,7 +267,7 @@ export default class Discovery {
 
   // a test is considered moved either if its name has changed or its folder path
   private isTestMoved(test: AutomatedTest): boolean {
-    if (!isBlank(test.oldName) && !isBlank(test.oldPackageName) && !isBlank(test.name) && !isBlank(test.packageName)) {
+    if (!isBlank(test.oldName) && test.oldPackageName != null && !isBlank(test.name) && test.packageName != null) {
       return test.name !== test.oldName || test.packageName !== test.oldPackageName;
     }
     return false;

@@ -286,7 +286,8 @@ export default class OctaneClient {
     };
     this._logger.debug(`Getting units (model_items) ...`);
     const qry1 = Query.field(SCM_REPOSITORY).equal(Query.field(ID).equal(scmRepositoryId));
-    const qry2 = folderNames.map(folderName => Query.field(PARENT).equal(Query.field(NAME).equal(folderName))).reduce((acc, curr) => acc.or(curr), Query.NULL);
+    const queries = folderNames.map(folderName => Query.field(PARENT).equal(Query.field(NAME).equal(folderName)));
+    const qry2 = queries.reduce((acc, curr) => acc.or(curr));
     return this.fetchUnits(qry1.and(qry2));
   }
 
@@ -366,7 +367,7 @@ export default class OctaneClient {
     if (unitsMap.size === 0) return;
 
     this._logger.info(`Successfully added ${unitsMap.size} new units.`);
-    this._logger.info(`Dispatching ${paramsToAdd.length} new unit parameters ...`);
+    this._logger.info(`Creating ${paramsToAdd.length} new unit parameters ...`);
 
     // !!! IMPORTANT: replace parent unit entities for parameters in order to save their relations
     for (const param of paramsToAdd) {
@@ -488,9 +489,14 @@ export default class OctaneClient {
     const MAX_LIMIT = 1000;
     let go = false;
     do {
-      const res = await this._octane.get(collectionName).query(qry).fields(...fields).offset(entities.length).limit(MAX_LIMIT).orderBy("id").execute();
-      go = res.total_count === MAX_LIMIT && res.data?.length === MAX_LIMIT;
-      res.data?.length && entities.push(...res.data);
+      try {
+        const res = await this._octane.get(collectionName).query(qry).fields(...fields).offset(entities.length).limit(MAX_LIMIT).orderBy("id").execute();
+        go = res.total_count === MAX_LIMIT && res.data?.length === MAX_LIMIT;
+        res.data?.length && entities.push(...res.data);
+      } catch(error: any) {
+        this._logger.error(`Error fetching entities from collection '${collectionName}': ${error.message}`);
+        throw error; // Re-throw the error to be handled by the caller
+      }
     } while (go);
     return entities;
   };
@@ -511,7 +517,7 @@ export default class OctaneClient {
     const MAX_LIMIT = 100;
     const partitions: T[][] = this.partition(entries, MAX_LIMIT);
     for (const entities of partitions) {
-      const res = await this._octane.update(collectionName, entities).fields(...fields).execute();
+      const res = await this._octane.updateBulk(collectionName, entities).fields(...fields).execute();
       res.data?.length && results.push(...res.data); // TODO debug to see if res or res.data contains the content
     }
     return results;

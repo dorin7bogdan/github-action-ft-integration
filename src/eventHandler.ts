@@ -33,10 +33,9 @@ import ActionsEvent from './dto/github/ActionsEvent';
 import ActionsEventType from './dto/github/ActionsEventType';
 import { getEventType } from './service/ciEventsService';
 import { Logger } from './utils/logger';
-import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp, getWorkflowPath } from './utils/utils';
+import { saveSyncedCommit, getSyncedCommit, getSyncedTimestamp } from './utils/utils';
 import { context } from '@actions/github';
 import { getOrCreateTestRunner } from './service/executorService';
-import CiParameter from './dto/octane/events/CiParameter';
 import Discovery from './discovery/Discovery';
 import { UftoParamDirection } from './dto/ft/UftoParamDirection';
 import { OctaneStatus } from './dto/ft/OctaneStatus';
@@ -45,6 +44,7 @@ import { mbtPrepDiscoveryRes4Sync } from './discovery/mbtDiscoveryResultPreparer
 import { getOrCreateCiJob } from './service/ciJobService';
 import { dispatchDiscoveryResults } from './discovery/mbtDiscoveryResultDispatcher';
 import path from 'node:path';
+import GitHubClient from './client/githubClient';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -66,7 +66,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
   let workflowPath: string | undefined;
   if (eventType === ActionsEventType.PUSH) {
-    workflowPath = await getWorkflowPath(event.after!);
+    workflowPath = await GitHubClient.getWorkflowPath(event.after!);
   } else {
     workflowPath = (typeof event.workflow === 'string') ? event.workflow : event.workflow?.path;
   }
@@ -83,10 +83,12 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
 
   if (!branchName) {
+    //branchName = "main"; // Default branch name if not provided
     throw new Error('Could not determine branch name!');
   }
 
   if (!workflowPath) {
+//    workflowPath = "gha-ft-integration.yml";
     throw new Error('Event should contain workflow file path!');
   }
   const workflowFilename = path.basename(workflowPath, path.extname(workflowPath));
@@ -177,8 +179,8 @@ const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
 }
 
 const doTestSync = async (discoveryRes: DiscoveryResult, workflowFileName: string, branch: string) => {
-  const ciServerInstanceId = `GHA-${_config.owner}`;
-  const ciServerName = `GHA-${_config.owner}`;
+  const ciServerInstanceId = `GHA-MBT-${_config.owner}`;
+  const ciServerName = `GHA-MBT-${_config.owner}`;
   const executorCiId = `GHA-MBT-${_config.owner}.${_config.repo}.${branch}.${workflowFileName}`;
   const executorName = executorCiId;
 

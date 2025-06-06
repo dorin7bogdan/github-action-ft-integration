@@ -7,13 +7,7 @@ const _logger: Logger = new Logger('Discovery');
 
 export default class DiscoveryResult {
   private readonly _tests: ReadonlyArray<AutomatedTest>;
-  private readonly _newTests: ReadonlyArray<AutomatedTest>;
-  private readonly _updatedTests: ReadonlyArray<AutomatedTest>;
-  private readonly _deletedTests: ReadonlyArray<AutomatedTest>;
   private readonly _scmResxFiles: ReadonlyArray<ScmResourceFile>;
-  private readonly _newScmResxFiles: ReadonlyArray<ScmResourceFile>;
-  private readonly _updatedScmResxFiles: ReadonlyArray<ScmResourceFile>;
-  private readonly _deletedScmResxFiles: ReadonlyArray<ScmResourceFile>;
   private readonly _hasChanges: boolean = false;
   private readonly _newCommit: string;
   private readonly _isFullSync: boolean;
@@ -24,16 +18,6 @@ export default class DiscoveryResult {
     this._tests = Object.freeze(tests);
     this._scmResxFiles = Object.freeze(scmResxFiles);
     this._hasChanges = tests.length > 0 || scmResxFiles.length > 0;
-
-    const { newTests, updatedTests, deletedTests } = this.categorizeTests(tests);
-    this._newTests = Object.freeze(newTests);
-    this._updatedTests = Object.freeze(updatedTests);
-    this._deletedTests = Object.freeze(deletedTests);
-
-    const { newScmResxFiles, updatedScmResxFiles, deletedScmResxFiles } = this.categorizeScmResxFiles(scmResxFiles);
-    this._newScmResxFiles = Object.freeze(newScmResxFiles);
-    this._updatedScmResxFiles = Object.freeze(updatedScmResxFiles);
-    this._deletedScmResxFiles = Object.freeze(deletedScmResxFiles);
   }
 
   public isFullSync(): boolean {
@@ -53,57 +37,19 @@ export default class DiscoveryResult {
   }
 
   public getNewTests(): ReadonlyArray<AutomatedTest> {
-    return this._newTests;
+    return this._tests.filter(t => t.octaneStatus == OctaneStatus.NEW);
   }
 
   public getUpdatedTests(): ReadonlyArray<AutomatedTest> {
-    return this._updatedTests;
+    return this._tests.filter(t => t.octaneStatus == OctaneStatus.MODIFIED);
   }
 
   public getDeletedTests(): ReadonlyArray<AutomatedTest> {
-    return this._deletedTests;
-  }
-
-  public getNewScmResxFiles(): ReadonlyArray<ScmResourceFile> {
-    return this._newScmResxFiles;
-  }
-
-  public getDeletedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
-    return this._deletedScmResxFiles;
-  }
-
-  public getupdatedScmResxFiles(): ReadonlyArray<ScmResourceFile> {
-    return this._updatedScmResxFiles;
+    return this._tests.filter(t => t.octaneStatus == OctaneStatus.DELETED);
   }
 
   public getScmResxFiles(): ReadonlyArray<ScmResourceFile> {
     return this._scmResxFiles;
-  }
-
-  private categorizeTests(tests: AutomatedTest[]): { newTests: AutomatedTest[], updatedTests: AutomatedTest[], deletedTests: AutomatedTest[] } {
-    return tests.reduce<{ newTests: AutomatedTest[], updatedTests: AutomatedTest[], deletedTests: AutomatedTest[] }>((acc, test) => {
-      if (test.octaneStatus === OctaneStatus.NEW) {
-        acc.newTests.push(test);
-      } else if (test.octaneStatus === OctaneStatus.MODIFIED) {
-        acc.updatedTests.push(test);
-      } else if (test.octaneStatus === OctaneStatus.DELETED) {
-        acc.deletedTests.push(test);
-      }
-      return acc;
-    }, { newTests: [], updatedTests: [], deletedTests: [] });
-  }
-
-  private categorizeScmResxFiles(scmResxFiles: ScmResourceFile[]): { newScmResxFiles: ScmResourceFile[], updatedScmResxFiles: ScmResourceFile[], deletedScmResxFiles: ScmResourceFile[] } {
-    return scmResxFiles.reduce<{ newScmResxFiles: ScmResourceFile[], updatedScmResxFiles: ScmResourceFile[], deletedScmResxFiles: ScmResourceFile[] }>((acc, file) => {
-      if (file.octaneStatus === OctaneStatus.NEW) {
-        acc.newScmResxFiles.push(file);
-      } else if (file.octaneStatus === OctaneStatus.MODIFIED) {
-        acc.updatedScmResxFiles.push(file);
-      } else if (file.octaneStatus === OctaneStatus.DELETED) {
-        acc.deletedScmResxFiles.push(file);
-      }
-      return acc;
-    }, { newScmResxFiles: [], updatedScmResxFiles: [], deletedScmResxFiles: [] });
   }
 }
 

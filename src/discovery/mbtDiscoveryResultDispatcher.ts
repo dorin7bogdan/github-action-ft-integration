@@ -186,24 +186,30 @@ const createUnitParam = (param: UftoTestParam, unit: UnitBody): UnitParamBody =>
   };
 }
 
-const buildUnit = (executorId: number, action: UftoTestAction, parentId: number|null, unitParams: UnitParamBody[] | null = null): UnitBody => {
+const buildUnit = (executorId: number, scmRepositoryId: number, action: UftoTestAction, parentId: number|null, unitParams: UnitParamBody[] | null = null): UnitBody => {
   if (!parentId && !action.id) {
     throw new Error("Received null parent folder, when trying to create a new unit entity");
   }
 
-  const parentRef: Reference|null = parentId ? { id: parentId, type: EntityConstants.ModelFolder.ENTITY_NAME } : null;
   let unit: UnitBody = {
+    ... (parentId ? { parent: { id: parentId, type: "model_item" } } : {}),
+    ... (action.description ? { description: action.description } : {}),
     name: !action.logicalName || action.logicalName.startsWith("Action") ? `${action.testName}:${action.name}` : action.logicalName,
-    type: EntityConstants.MbtUnit.ENTITY_NAME,
-    subtype: EntityConstants.MbtUnit.ENTITY_SUBTYPE,
-    automation_status: { id: "list_node.automation_status.automated", type: LIST_NODE },
-    repository_path: action.repositoryPath,
-    parent: parentRef,
-    test_runner: { id: executorId, type: "executor" }
-    //testing_tool_type: TODO might not be needed
+    repository_path: action.repositoryPath
   };
-  action.id && (unit.id = action.id); // if the action already exists, we need to set its ID
-  action.description && (unit.description = action.description);
+  if (action.id) {
+    unit = { ...unit,
+      id: action.id,
+    }; 
+  } else {
+    unit = { ...unit,
+      type: EntityConstants.MbtUnit.ENTITY_NAME,
+      subtype: EntityConstants.MbtUnit.ENTITY_SUBTYPE,
+      automation_status: { id: "list_node.automation_status.automated", type: LIST_NODE },
+      test_runner: { id: executorId, type: "executor" },
+      scm_repository: { id: scmRepositoryId, type: "scm_repository" }
+    }
+  }
 
   //TODO check why we need to add the unit to each param ?
   if (unitParams) {
@@ -215,7 +221,7 @@ const buildUnit = (executorId: number, action: UftoTestAction, parentId: number|
   return unit;
 }
 
-const dispatchNewActions = async (executorId: number, newActions: UftoTestAction[], autoDiscoveredFolder: BaseFolder): Promise<boolean> => {
+const dispatchNewActions = async (executorId: number, scmRepositoryId: number, newActions: UftoTestAction[], autoDiscoveredFolder: BaseFolder): Promise<boolean> => {
   if (newActions?.length) {
     const foldersMap = await createParentFolders(newActions, autoDiscoveredFolder);
     const paramsToAdd: UnitParamBody[] = []; // add external parameter entities list to be filled by each action creation
@@ -231,7 +237,7 @@ const dispatchNewActions = async (executorId: number, newActions: UftoTestAction
         _logger.error(`Parent folder for test ${action.testName} not found`);
         continue;
       }
-      unitsToAdd.push(buildUnit(executorId, action, parentFolder.id, paramsToAdd));
+      unitsToAdd.push(buildUnit(executorId, scmRepositoryId, action, parentFolder.id, paramsToAdd));
     }
     await OctaneClient.createUnits(unitsToAdd, paramsToAdd);
   }
@@ -252,12 +258,9 @@ const dispatchDeletedActions = async (deletedActions: UftoTestAction[]): Promise
       const unit: UnitBody = {
         id: action.id,
         repository_path: null,
-        description: null,
-        parent: null,
-        automation_status: { id: "list_node.automation_status.not_automated", type: LIST_NODE }
+        automation_status: { id: "list_node.automation_status.not_automated", type: LIST_NODE },
+        test_runner: null
       };
-      unit.test_runner = null; // TODO currently in Tech-preview
-      //unit.testing_tool_type = null; // TODO currently in Tech-preview
       unitsToDelete.push(unit);
     }
     await OctaneClient.updateUnits(unitsToDelete);
@@ -266,14 +269,14 @@ const dispatchDeletedActions = async (deletedActions: UftoTestAction[]): Promise
   return true;
 }
 
-const dispatchUpdatedActions = async (executorId: number, scmRepositoryId: number, updatedActions: UftoTestAction[], autoDiscoveredFolder: Folder): Promise<boolean> => {
+const dispatchUpdatedActions = async (executorId: number, scmRepositoryId: number, updatedActions: UftoTestAction[], parentFolder: Folder): Promise<boolean> => {
   if (updatedActions?.length) {
     _logger.info(`Updating ${updatedActions.length} actions ...`);
-    const existingFoldersMap = await updateParentFolders(scmRepositoryId, updatedActions, autoDiscoveredFolder);
+    const existingFoldersMap = await updateParentFolders(scmRepositoryId, updatedActions, parentFolder);
     // convert actions to unit entities
     const unitsToUpdate: UnitBody[] = updatedActions.map(action => {
       const parentFolder = action.testName ? existingFoldersMap.get(action.testName) ?? null : null;
-      return buildUnit(executorId, action, parentFolder?.id ?? null);
+      return buildUnit(executorId, scmRepositoryId, action, parentFolder?.id ?? null);
     });
 
     // update units
@@ -300,7 +303,7 @@ const dispatchDiscoveryResults = async (executorId: number, scmRepositoryId: num
   // handle new actions - create new units and parameters in octane
   let newActionsSynced = true;
   if (actionsByStatusMap.has(OctaneStatus.NEW)) {
-    newActionsSynced = await dispatchNewActions(executorId, actionsByStatusMap.get(OctaneStatus.NEW)!, autoDiscoveredFolder);
+    newActionsSynced = await dispatchNewActions(executorId, scmRepositoryId, actionsByStatusMap.get(OctaneStatus.NEW)!, autoDiscoveredFolder);
   }
 
   // handle deleted actions - currently do nothing

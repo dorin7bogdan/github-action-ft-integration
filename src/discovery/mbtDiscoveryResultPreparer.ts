@@ -52,10 +52,11 @@ const mbtPrepDiscoveryRes4Sync = async (executorId: number, scmRepositoryId: num
     removeExistingUnits(discoveryRes, existingUnitsByRepo);
   } else {
     _logger.info(`Preparing incremental sync dispatch with MBT for executor ${executorId}`);
-    handleDeletedTests(discoveryRes.getDeletedTests());
-    handleAddedTests(discoveryRes);
-    handleUpdatedTests(discoveryRes.getUpdatedTests());
-    handleMovedTests(discoveryRes.getUpdatedTests());
+    await handleDeletedTests(discoveryRes.getDeletedTests());
+    await handleAddedTests(discoveryRes);
+    await handleUpdatedTests(discoveryRes.getUpdatedTests());
+    await handleMovedTests(discoveryRes.getUpdatedTests());
+    return;
   }
 }
 

@@ -27,8 +27,7 @@
  * limitations under the License.
  */
 
-import { getOctokit } from '@actions/github';
-import { getConfig } from '../config/config';
+import { getOctokit, context } from '@actions/github';
 import { ActionsJob } from '../dto/github/ActionsJob';
 import Artifact from '../dto/github/Artifact';
 import Commit from '../dto/github/Commit';
@@ -36,18 +35,49 @@ import WorkflowRun from '../dto/github/WorkflowRun';
 import WorkflowRunStatus from '../dto/github/WorkflowRunStatus';
 import { Logger } from '../utils/logger';
 import FileContent from '../dto/github/FileContent';
-
+import * as core from '@actions/core';
+import { getConfig } from '../config/config';
+const _config = getConfig();
 export default class GitHubClient {
-  private static LOGGER: Logger = new Logger('githubClient');
+  private static _logger: Logger = new Logger('githubClient');
 
   private static octokit = getOctokit(getConfig().githubToken);
+
+  public static getWorkflowPath = async (headSHA: string): Promise<string> => {
+      const token = core.getInput('githubToken', { required: true });
+      const octokit = getOctokit(token);
+
+      try {
+        const { data: workflowRuns } = await octokit.rest.actions.listWorkflowRunsForRepo({
+          owner: _config.owner,
+          repo: _config.repo,
+          event: 'push',
+          head_sha: headSHA,
+          status: 'in_progress'
+        });
+
+        if (workflowRuns.workflow_runs.length === 0) {
+          throw new Error(`No in-progress workflow runs found for SHA ${headSHA}`);
+        }
+
+        const currentRunId = context.runId;
+        const currentRun = workflowRuns.workflow_runs.find(run => run.id === currentRunId);
+        if (!currentRun) {
+          throw new Error(`Current workflow run (ID: ${currentRunId}) not found for SHA ${headSHA}`);
+        }
+        return currentRun.path; // e.g., .github/workflows/gha-ft-integration.yml
+      } catch (error) {
+        console.error('Error fetching workflow path:', error);
+        throw error; // Re-throw to allow caller to handle
+      }
+    }
 
   public static getWorkflowRunJobs = async (
     owner: string,
     repo: string,
     workflowRunId: number
   ): Promise<ActionsJob[]> => {
-    this.LOGGER.debug(
+    this._logger.debug(
       `Getting all jobs for workflow run with {run_id='${workflowRunId}'}...`
     );
 
@@ -68,7 +98,7 @@ export default class GitHubClient {
     repo: string,
     jobId: number
   ): Promise<ActionsJob> => {
-    this.LOGGER.debug(`Getting job with {job_id='${jobId}'}...`);
+    this._logger.debug(`Getting job with {job_id='${jobId}'}...`);
 
     return (
       await this.octokit.rest.actions.getJobForWorkflowRun({
@@ -86,7 +116,7 @@ export default class GitHubClient {
     workflowId: number,
     status: WorkflowRunStatus
   ): Promise<WorkflowRun[]> => {
-    this.LOGGER.debug(
+    this._logger.debug(
       `Getting workflow runs before '${beforeTime}' with {workflow_id='${workflowId}', status='${status}'}...`
     );
 
@@ -111,7 +141,7 @@ export default class GitHubClient {
     repo: string,
     workflowRunId: number
   ): Promise<WorkflowRun> => {
-    this.LOGGER.debug(
+    this._logger.debug(
       `Getting workflow run with {run_id='${workflowRunId}'}...`
     );
 
@@ -129,7 +159,7 @@ export default class GitHubClient {
     repo: string,
     workflowRunId: number
   ): Promise<Artifact[]> => {
-    this.LOGGER.debug(
+    this._logger.debug(
       `Getting artifacts for workflow run with {run_id='${workflowRunId}'}...`
     );
 
@@ -145,7 +175,7 @@ export default class GitHubClient {
     repo: string,
     artifactId: number
   ): Promise<ArrayBuffer> => {
-    this.LOGGER.info(
+    this._logger.info(
       `Downloading artifact with {artifactId='${artifactId}'}...`
     );
 
@@ -166,7 +196,7 @@ export default class GitHubClient {
     since: Date
   ): Promise<string[]> => {
     const isoFormattedSince = since.toISOString();
-    this.LOGGER.debug(
+    this._logger.debug(
       `Getting commits since '${isoFormattedSince}' for branch '${branch}'...`
     );
 
@@ -190,7 +220,7 @@ export default class GitHubClient {
     repo: string,
     commitSha: string
   ): Promise<Commit> => {
-    this.LOGGER.trace(`Getting commit with {ref='${commitSha}'}...`);
+    this._logger.trace(`Getting commit with {ref='${commitSha}'}...`);
 
     return (
       await this.octokit.rest.repos.getCommit({
@@ -206,7 +236,7 @@ export default class GitHubClient {
     repo: string,
     pullRequestNumber: number
   ): Promise<string[]> => {
-    this.LOGGER.debug(
+    this._logger.debug(
       `Getting commits for pull request with {pull_number='${pullRequestNumber}'}...`
     );
 
@@ -228,7 +258,7 @@ export default class GitHubClient {
     repo: string,
     workflowRunId: number
   ): Promise<string | undefined> => {
-    this.LOGGER.info(
+    this._logger.info(
       `Downloading logs for workflow with {run_id='${workflowRunId}'}...`
     );
 
@@ -240,7 +270,7 @@ export default class GitHubClient {
     });
 
     if (!response.url) {
-      this.LOGGER.warn(
+      this._logger.warn(
         `Couldn't get the location of the logs files for workflow with {run_id='${workflowRunId}'}...`
       );
     }
@@ -254,7 +284,7 @@ export default class GitHubClient {
     workflowFileName: string,
     branchName?: string
   ): Promise<FileContent> => {
-    this.LOGGER.info(
+    this._logger.info(
       `Getting the configuration file for workflow with {workflowFileName='${workflowFileName}'}...`
     );
 

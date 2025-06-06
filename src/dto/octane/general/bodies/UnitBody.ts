@@ -36,10 +36,11 @@ export default interface UnitBody {
   name?: string;
   parent?: Reference|null;
   subtype?: string;
-  automation_status: any;
+  automation_status?: any;
   repository_path?: string|null;
   testing_tool_type?: string | null;
   test_runner?: Reference | null;
+  scm_repository?: Reference | null;
 }
 
 export interface UnitParamBody {
