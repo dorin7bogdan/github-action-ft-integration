@@ -26,7 +26,7 @@
     "fs-extra": "^11.3.0",
     "globby": "^14.1.0",
     "isomorphic-git": "^1.29.0",
-    "ole-doc": "^0.1.1",
+    "ole-doc": "github:dorin7bogdan/node-ole-doc#master",
     "yaml": "^2.7.0"
   },
   "overrides": {

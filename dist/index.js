@@ -32839,7 +32839,7 @@ var es = __nccwpck_require__(7807);
 function Header() {
 };
 
-Header.ole_id = new Buffer( 'D0CF11E0A1B11AE1', 'hex' );
+Header.ole_id = Buffer.from('D0CF11E0A1B11AE1', 'hex');
 
 Header.prototype.load = function( buffer ) {
    var i;
@@ -33055,11 +33055,6 @@ Storage.prototype.stream = function( streamName ) {
    });
 };
 
-//function Stream( doc, dirEntry ) {
-//   this._doc = doc;
-//   this._dirEntry = dirEntry;
-//};
-
 function OleCompoundDoc( filename ) {
    EventEmitter.call(this);
 
@@ -33120,7 +33115,7 @@ OleCompoundDoc.prototype._openFile = function( callback ) {
 
 OleCompoundDoc.prototype._readCustomHeader = function(callback) {
    var self = this;
-   var buffer = new Buffer(this._skipBytes);
+   var buffer = Buffer.alloc(this._skipBytes);
    fs.read( self._fd, buffer, 0, this._skipBytes, 0, function(err, bytesRead, buffer) {
       if(err) {
          self.emit('err', err);
@@ -33136,8 +33131,8 @@ OleCompoundDoc.prototype._readCustomHeader = function(callback) {
 
 OleCompoundDoc.prototype._readHeader = function(callback) {
    var self = this;
-   var buffer = new Buffer(512);
-   fs.read( this._fd, buffer, 0, 512, 0 + this._skipBytes, function(err, bytesRead, buffer) {
+   var buffer = Buffer.alloc(512);
+   fs.read( self._fd, buffer, 0, 512, 0 + this._skipBytes, function(err, bytesRead, buffer) {
       if( err ) {
          self.emit('err', err);
          return;
@@ -33165,7 +33160,7 @@ OleCompoundDoc.prototype._readMSAT = function(callback) {
       return;
    }
 
-   var buffer = new Buffer( header.secSize );
+   var buffer = Buffer.alloc( header.secSize );
    var currMSATIndex = 109;
    var i = 0;
    var secId = header.MSATSecId;
@@ -33210,7 +33205,7 @@ OleCompoundDoc.prototype._readSector = function(secId, callback) {
 OleCompoundDoc.prototype._readSectors = function(secIds, callback) {
    var self = this;
    var header = self._header;
-   var buffer = new Buffer( secIds.length * header.secSize );
+   var buffer = Buffer.alloc( secIds.length * header.secSize );
 
    var i = 0;
 
@@ -33246,7 +33241,7 @@ OleCompoundDoc.prototype._readShortSector = function(secId, callback) {
 OleCompoundDoc.prototype._readShortSectors = function(secIds, callback) {
    var self = this;
    var header = self._header;
-   var buffer = new Buffer( secIds.length * header.shortSecSize );
+   var buffer = Buffer.alloc( secIds.length * header.shortSecSize );
 
    var i = 0;
 
