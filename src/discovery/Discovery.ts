@@ -9,7 +9,7 @@ import AutomatedTest from '../dto/ft/AutomatedTest';
 import ScmResourceFile from '../dto/ft/ScmResourceFile';
 import { OctaneStatus } from '../dto/ft/OctaneStatus';
 import { DOMParser, Document, Element } from '@xmldom/xmldom';
-import { OleCompoundDoc } from 'ole-doc';
+import * as CFB from 'cfb';
 import UftoTestAction from '../dto/ft/UftoTestAction';
 import UftoTestParam from '../dto/ft/UftoTestParam';
 import ScmChangesWrapper, { ScmAffectedFileWrapper } from './ScmChangesWrapper';
@@ -542,49 +542,36 @@ export default class Discovery {
 
   private async extractXmlFromTspOrMtrFile(filePath: string): Promise<string> {
     try {
-      const doc = new OleCompoundDoc(filePath);
+      // Read the .TSP file into a Buffer
+      const data = await fs.promises.readFile(filePath);
 
-      await new Promise<void>((resolve, reject) => {
-        doc.on('ready', () => resolve());
-        doc.on('err', (err: Error) => {
-          _logger.error(err.message);
-          reject(new Error(`OLE parsing error: ${err.message}`));
-        });
-        doc.read();
-      });
+      // Parse the CFB file
+      const cfb: CFB.CFB$Container = CFB.read(data, { type: 'buffer' });
 
-      let xmlData = '';
-
-      if (doc._rootStorage) {
-        const stream = doc._rootStorage!.stream(COMPONENT_INFO);
-        if (stream) {
-          const content = await this.readStreamToBuffer(stream);
-          const fromUnicodeLE = this.bufferToUnicodeLE(content);
-          const xmlStart = fromUnicodeLE.indexOf('<');
-          if (xmlStart >= 0) {
-            xmlData = fromUnicodeLE.substring(xmlStart).replace(/\0/g, '');
-          }
-        } else {
-          throw new Error('ComponentInfo stream not found via OleCompoundDoc._rootStorage');
-        }
-      } else {
-        throw new Error('OleCompoundDoc: _rootStorage not initialized');
+      // Find the ComponentInfo stream
+      const stream = CFB.find(cfb, COMPONENT_INFO);
+      if (!stream || !stream.content) {
+        throw new Error('ComponentInfo stream not found in CFB container');
       }
-      return xmlData;
+
+      // Convert stream content to Buffer (cfb returns Buffer or Uint8Array)
+      const content = Buffer.isBuffer(stream.content)
+        ? stream.content
+        : Buffer.from(stream.content);
+
+      // Convert to UTF-16LE and extract XML
+      const fromUnicodeLE = this.bufferToUnicodeLE(content);
+      const xmlStart = fromUnicodeLE.indexOf('<');
+      if (xmlStart >= 0) {
+        return fromUnicodeLE.substring(xmlStart).replace(/\0/g, '');
+      } else {
+        throw new Error('No XML data found in ComponentInfo stream');
+      }
     } catch (error) {
       const err = `${(error as Error).message}`;
       _logger.error(`Failed to extract xml from Test.tsp file: ${err}`);
       throw new Error(err);
     }
-  }
-
-  private async readStreamToBuffer(stream: any): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
-      stream.on('error', reject);
-    });
   }
 
   private bufferToUnicodeLE(buffer: Buffer): string {

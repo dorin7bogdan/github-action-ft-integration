@@ -284,7 +284,7 @@ export default class OctaneClient {
     if (!folderNames || folderNames.length === 0) {
       return Promise.resolve([]);
     };
-    this._logger.debug(`Getting units (model_items) ...`);
+    this._logger.debug(`Getting units from folders ...`);
     const qry1 = Query.field(SCM_REPOSITORY).equal(Query.field(ID).equal(scmRepositoryId));
     const queries = folderNames.map(folderName => Query.field(PARENT).equal(Query.field(NAME).equal(folderName)));
     const qry2 = queries.reduce((acc, curr) => acc.or(curr));
