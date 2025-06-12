@@ -83,12 +83,10 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
 
   if (!branchName) {
-    //branchName = "main"; // Default branch name if not provided
     throw new Error('Could not determine branch name!');
   }
 
   if (!workflowPath) {
-//    workflowPath = "gha-ft-integration.yml";
     throw new Error('Event should contain workflow file path!');
   }
   const workflowFilename = path.basename(workflowPath, path.extname(workflowPath));
@@ -152,7 +150,6 @@ export const handleCurrentEvent = async (): Promise<void> => {
         }
       }
 
-      // TODO sync the tests with Octane
       await doTestSync(discoveryRes, workflowFilename, branchName!);
       const newCommit = discoveryRes.getNewCommit();
       if (newCommit !== oldCommit) {

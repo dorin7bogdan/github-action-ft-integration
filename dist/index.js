@@ -74156,11 +74156,9 @@ const handleCurrentEvent = async () => {
         branchName = event.workflow_run?.head_branch; // Fallback for other event types
     }
     if (!branchName) {
-        //branchName = "main"; // Default branch name if not provided
         throw new Error('Could not determine branch name!');
     }
     if (!workflowPath) {
-        //workflowPath = "gha-ft-integration.yml";
         throw new Error('Event should contain workflow file path!');
     }
     const workflowFilename = node_path_1.default.basename(workflowPath, node_path_1.default.extname(workflowPath));
@@ -74220,7 +74218,6 @@ const handleCurrentEvent = async () => {
                     f.changeSetDst && console.log(`  changeSetDst: ${f.changeSetDst}`);
                 }
             }
-            // TODO sync the tests with Octane
             await doTestSync(discoveryRes, workflowFilename, branchName);
             const newCommit = discoveryRes.getNewCommit();
             if (newCommit !== oldCommit) {

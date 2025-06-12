@@ -1,0 +1,18 @@
+{
+  "action": "workflow_dispatch",
+  "workflow_run": {
+    "head_branch": "main",
+    "id": 123456,
+    "status": "completed",
+    "conclusion": "success",
+    "workflow_id": 7890,
+    "repository": {
+      "full_name": "dorin7bogdan/ufto-tests"
+    }
+  },
+  "workflow": {
+    "path": ".github/workflows/gha-ft-integration.yml",
+    "id": 7890,
+    "name": "My-Custom-Workflow"
+  }
+}
