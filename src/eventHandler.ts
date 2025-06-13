@@ -45,6 +45,8 @@ import { getOrCreateCiJob } from './service/ciJobService';
 import { dispatchDiscoveryResults } from './discovery/mbtDiscoveryResultDispatcher';
 import path from 'node:path';
 import GitHubClient from './client/githubClient';
+import CiParameter from './dto/octane/events/CiParameter';
+import { getParametersFromConfig } from './service/parametersService';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -72,7 +74,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
 
   //const workflowName = event.workflow?.name;
-  //const workflowRunId = event.workflow_run?.id;
+  const workflowRunId = event.workflow_run?.id;
   const ref: string | undefined = event.ref;
   let branchName: string | undefined;
 
@@ -89,7 +91,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   if (!workflowPath) {
     throw new Error('Event should contain workflow file path!');
   }
-  const workflowFilename = path.basename(workflowPath, path.extname(workflowPath));
+  const workflowFileName = path.basename(workflowPath);
 
   _logger.info(`Current repository URL: ${_config.repoUrl}`);
 
@@ -150,14 +152,29 @@ export const handleCurrentEvent = async (): Promise<void> => {
         }
       }
 
-      await doTestSync(discoveryRes, workflowFilename, branchName!);
+      await doTestSync(discoveryRes, workflowFileName, branchName!);
       const newCommit = discoveryRes.getNewCommit();
       if (newCommit !== oldCommit) {
         await saveSyncedCommit(newCommit);
       }
       break;
+    case ActionsEventType.WORKFLOW_QUEUED:
+    case ActionsEventType.WORKFLOW_STARTED:
     case ActionsEventType.WORKFLOW_FINISHED:
-      _logger.info('WORKFLOW_FINISHED.');
+      if (!workflowRunId) {
+        throw new Error('Event should contain workflow run id!');
+      }
+
+      if (!workflowPath) {
+        throw new Error('Event should contain workflow file path!');
+      }
+
+      const configParameters = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
+      if (configParameters && hasExecutorParameters(configParameters)) {
+        _logger.debug(`Executor parameters found: ${JSON.stringify(configParameters)}`);
+        _logger.debug(`TODO ....`);
+        //await handleExecutorEvent(event, workflowFileName, configParameters);
+      }
       break;
     default:
       _logger.info(`default -> eventType = ${eventType}`);
@@ -178,11 +195,11 @@ const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
 const doTestSync = async (discoveryRes: DiscoveryResult, workflowFileName: string, branch: string) => {
   const ciServerInstanceId = `GHA-MBT-${_config.owner}`;
   const ciServerName = `GHA-MBT-${_config.owner}`;
-  const executorCiId = `GHA-MBT-${_config.owner}.${_config.repo}.${branch}.${workflowFileName}`;
-  const executorName = executorCiId;
+  const executorName = `GHA-MBT-${_config.owner}.${_config.repo}.${branch}.${workflowFileName}`;
+  const jobCiId = `${_config.owner}/${_config.repo}/${workflowFileName}/executor/${branch}`;
 
   const ciServer = await OctaneClient.getOrCreateCiServer(ciServerInstanceId, ciServerName);
-  const ciJob = await getOrCreateCiJob(executorName, executorCiId, ciServer, branch);
+  const ciJob = await getOrCreateCiJob(executorName, jobCiId, ciServer, branch);
   _logger.debug(`Ci Job id: ${ciJob.id}, name: ${ciJob.name}, ci_id: ${ciJob.ci_id}`);
   const tr = await getOrCreateTestRunner(executorName, ciServer.id, ciJob);
   _logger.debug(`ci_server.id: ${tr.ci_server.id}, ci_job.id: ${tr.ci_job.id}, scm_repository.id: ${tr.scm_repository.id}`);
@@ -190,3 +207,13 @@ const doTestSync = async (discoveryRes: DiscoveryResult, workflowFileName: strin
   await dispatchDiscoveryResults(tr.id, tr.scm_repository.id, discoveryRes);
 }
 
+const hasExecutorParameters = (configParameters: CiParameter[] | undefined): boolean => {
+  if (!configParameters) {
+    return false;
+  }
+
+  const requiredParameters = ['suiteRunId', 'executionId', 'testsToRun'];
+  const foundNames = new Set(configParameters.map(param => param.name));
+
+  return requiredParameters.every(name => foundNames.has(name));
+};

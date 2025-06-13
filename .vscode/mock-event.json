@@ -3,6 +3,7 @@
   "workflow_run": {
     "head_branch": "main",
     "id": 123456,
+    "run_number": 123,
     "status": "completed",
     "conclusion": "success",
     "workflow_id": 7890,
