@@ -116,7 +116,7 @@ export default class OctaneClient {
 
     const ciServerQuery = Query.field(INSTANCE_ID).equal(escapeQueryVal(instanceId))
       .and(Query.field(SERVER_TYPE).equal(this.GITHUB_ACTIONS))
-      .and(Query.field('url').equal(escapeQueryVal(this._config.repoUrl)))
+      //.and(Query.field('url').equal(escapeQueryVal(this._config.repoUrl)))
       .build();
     const fldNames = ['instance_id','plugin_version','url','is_connected'];
     const res = await this._octane.get(CI_SERVERS).fields(...fldNames).query(ciServerQuery).limit(1).execute();
