@@ -112,11 +112,12 @@ export default class OctaneClient {
   };
 
   public static getOrCreateCiServer = async (instanceId: string, name: string): Promise<CiServer> => {
-    this._logger.debug(`Getting CI server with {instanceId='${instanceId}', url='${this._config.repoUrl}'}...`);
+    const repoUrl = this._config.repoUrl.replace(/\.git$/, '');
+    this._logger.debug(`Getting CI server with {instanceId='${instanceId}', url='${repoUrl}'}...`);
 
     const ciServerQuery = Query.field(INSTANCE_ID).equal(escapeQueryVal(instanceId))
       .and(Query.field(SERVER_TYPE).equal(this.GITHUB_ACTIONS))
-      //.and(Query.field('url').equal(escapeQueryVal(this._config.repoUrl)))
+      .and(Query.field('url').equal(escapeQueryVal(repoUrl)))
       .build();
     const fldNames = ['instance_id','plugin_version','url','is_connected'];
     const res = await this._octane.get(CI_SERVERS).fields(...fldNames).query(ciServerQuery).limit(1).execute();
@@ -124,7 +125,7 @@ export default class OctaneClient {
     if (res?.total_count && res.data?.length) {
       ciServer = res.data[0];
     } else {
-      ciServer = await this.createCIServer(name, instanceId, this._config.repoUrl);
+      ciServer = await this.createCIServer(name, instanceId, repoUrl);
       this.updatePluginVersion(instanceId);
       ciServer.plugin_version = this.PLUGIN_VERSION;
     }
