@@ -59,7 +59,7 @@ const INSTANCE_ID = 'instance_id';
 export default class OctaneClient {
   private static _logger: Logger = new Logger('octaneClient');
   private static GITHUB_ACTIONS = 'github_actions';
-  private static PLUGIN_VERSION = '25.2';
+  private static PLUGIN_VERSION = '25.2.3';
   private static _config = getConfig();
   private static _octane: Octane = new Octane({
     server: this._config.octaneUrl,
