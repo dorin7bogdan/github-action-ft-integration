@@ -105,10 +105,10 @@ export const handleCurrentEvent = async (): Promise<void> => {
       const oldCommit = await getSyncedCommit();
       if (oldCommit) {
         const minSyncInterval = _config.minSyncInterval;
-        _logger.info(`minSyncInterval = ${minSyncInterval} seconds.`);
+        _logger.info(`minSyncInterval = ${minSyncInterval} minutes.`);
         const isIntervalElapsed = await isMinSyncIntervalElapsed(minSyncInterval);
         if (!isIntervalElapsed) {
-          _logger.warn(`The minimum time interval of ${minSyncInterval} seconds has not yet elapsed since the last sync.`);
+          _logger.warn(`The minimum time interval of ${minSyncInterval} minutes has not yet elapsed since the last sync.`);
           return;
         }
       }
@@ -188,8 +188,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
 const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
   const lastSyncedTimestamp = await getSyncedTimestamp();
   const currentTimestamp = new Date().getTime();
-  const timeDiffSeconds = Math.floor((currentTimestamp - lastSyncedTimestamp) / 1000);
-  return timeDiffSeconds > minSyncInterval;
+  const timeDiffMinutes = (currentTimestamp - lastSyncedTimestamp) / (60000);
+  return timeDiffMinutes >= minSyncInterval;
 }
 
 const doTestSync = async (discoveryRes: DiscoveryResult, workflowFileName: string, branch: string) => {

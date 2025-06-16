@@ -24,9 +24,9 @@ inputs:
     required: false
     default: 'MBT'
   minSyncInterval:
-    description: 'Minimum number of seconds to pass between 2 synchronizations'
+    description: 'Minimum number of minutes to pass between 2 synchronizations'
     required: false
-    default: "15"
+    default: "2"
   logLevel:
     description: 'Sets the log level (1-5): 1-trace, 2-debug, 3-info, 4-warn, 5-error'
     required: false
