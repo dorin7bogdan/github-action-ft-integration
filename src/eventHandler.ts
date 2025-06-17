@@ -47,6 +47,7 @@ import path from 'node:path';
 import GitHubClient from './client/githubClient';
 import CiParameter from './dto/octane/events/CiParameter';
 import { getParametersFromConfig } from './service/parametersService';
+import { getInput } from '@actions/core';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -99,16 +100,29 @@ export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info(`Working directory: ${workDir}`);
   _logger.info(`Testing tool type: ${_config.testingTool.toUpperCase()}`);
   const discovery = new Discovery(workDir);
-  const inputParams = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      inputParams && _logger.debug(`Input params: ${JSON.stringify(inputParams)}`);
-      if (inputParams && hasExecutorParameters(inputParams)) {
-        _logger.debug(`Handle Executor event ....`);
+      const inputParams = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
+      //inputParams && _logger.debug(`Input params: ${JSON.stringify(inputParams)}`);
+      //if (inputParams && hasExecutorParameters(inputParams)) {
+      const testsToRun = getInput('testsToRun');
+      const defaultTestsToRun = inputParams.find(p => p.name === "testsToRun")?.defaultValue;
+      const defaultSuiteRunId = inputParams.find(p => p.name === "suiteRunId")?.defaultValue;
+      const defaultSuiteId = inputParams.find(p => p.name === "suiteId")?.defaultValue;
+      const defaultExecutionId = inputParams.find(p => p.name === "executionId")?.defaultValue;
+      const suiteRunId = getInput('suiteRunId');
+      const suiteId = getInput('suiteId');
+      const executionId = getInput('executionId');
+      _logger.debug(`testsToRun = ${testsToRun}`);
+      _logger.debug(`suiteRunId = ${suiteRunId}`);
+      _logger.debug(`suiteId = ${suiteId}`);
+      _logger.debug(`executionId = ${executionId}`);
+      if (testsToRun === defaultTestsToRun && suiteRunId === defaultSuiteRunId && suiteId === defaultSuiteId && executionId === defaultExecutionId) {
+        _logger.debug(`Continue with discovery / sync ...`);
+      } else {
+        _logger.debug(`Handle executor event ...`);
         //await handleExecutorEvent(event, workflowFileName, configParameters);
         break;
-      } else {
-        _logger.debug(`Continue with discovery / sync ...`);
       }
     case ActionsEventType.PUSH:
       const oldCommit = await getSyncedCommit();
