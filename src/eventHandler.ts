@@ -99,8 +99,17 @@ export const handleCurrentEvent = async (): Promise<void> => {
   _logger.info(`Working directory: ${workDir}`);
   _logger.info(`Testing tool type: ${_config.testingTool.toUpperCase()}`);
   const discovery = new Discovery(workDir);
+  const inputParams = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
+      inputParams && _logger.debug(`Input params: ${JSON.stringify(inputParams)}`);
+      if (inputParams && hasExecutorParameters(inputParams)) {
+        _logger.debug(`Handle Executor event ....`);
+        //await handleExecutorEvent(event, workflowFileName, configParameters);
+        break;
+      } else {
+        _logger.debug(`Continue with discovery / sync ...`);
+      }
     case ActionsEventType.PUSH:
       const oldCommit = await getSyncedCommit();
       if (oldCommit) {
@@ -169,12 +178,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
         throw new Error('Event should contain workflow file path!');
       }
 
-      const configParameters = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
-      if (configParameters && hasExecutorParameters(configParameters)) {
-        _logger.debug(`Executor parameters found: ${JSON.stringify(configParameters)}`);
-        _logger.debug(`TODO ....`);
-        //await handleExecutorEvent(event, workflowFileName, configParameters);
-      }
+      _logger.debug(`TODO ....`);
+      //await handleExecutorEvent(event, workflowFileName, configParameters);
       break;
     default:
       _logger.info(`default -> eventType = ${eventType}`);
