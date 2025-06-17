@@ -46,8 +46,8 @@ import { dispatchDiscoveryResults } from './discovery/mbtDiscoveryResultDispatch
 import path from 'node:path';
 import GitHubClient from './client/githubClient';
 import CiParameter from './dto/octane/events/CiParameter';
-import { getParametersFromConfig } from './service/parametersService';
-import { getInput } from '@actions/core';
+import * as github from '@actions/github';
+import { WorkflowInputs } from './dto/github/Workflow';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -102,27 +102,33 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const discovery = new Discovery(workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      const inputParams = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
+      //const inputParams = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
       //inputParams && _logger.debug(`Input params: ${JSON.stringify(inputParams)}`);
       //if (inputParams && hasExecutorParameters(inputParams)) {
-      const testsToRun = getInput('testsToRun');
-      const defaultTestsToRun = inputParams.find(p => p.name === "testsToRun")?.defaultValue;
-      const defaultSuiteRunId = inputParams.find(p => p.name === "suiteRunId")?.defaultValue;
-      const defaultSuiteId = inputParams.find(p => p.name === "suiteId")?.defaultValue;
-      const defaultExecutionId = inputParams.find(p => p.name === "executionId")?.defaultValue;
-      const suiteRunId = getInput('suiteRunId');
-      const suiteId = getInput('suiteId');
-      const executionId = getInput('executionId');
-      _logger.debug(`testsToRun = ${testsToRun}`);
-      _logger.debug(`suiteRunId = ${suiteRunId}`);
-      _logger.debug(`suiteId = ${suiteId}`);
-      _logger.debug(`executionId = ${executionId}`);
-      if (testsToRun === defaultTestsToRun && suiteRunId === defaultSuiteRunId && suiteId === defaultSuiteId && executionId === defaultExecutionId) {
-        _logger.debug(`Continue with discovery / sync ...`);
-      } else {
-        _logger.debug(`Handle executor event ...`);
-        //await handleExecutorEvent(event, workflowFileName, configParameters);
-        break;
+
+      const inputs = github.context.payload.inputs ?? {};
+      const inputsJson = JSON.stringify(inputs, null, 0); // Compress JSON (no indentation)
+      _logger.debug(`execution_parameter:: ${inputsJson}`);
+      if (inputs) {
+        const { executionId, suiteId, suiteRunId, testsToRun } = {
+          executionId: inputs.executionId ?? '',
+          suiteId: inputs.suiteId ?? '',
+          suiteRunId: inputs.suiteRunId ?? '',
+          testsToRun: inputs.testsToRun ?? ''
+        } as WorkflowInputs;
+
+        _logger.debug(`testsToRun = ${testsToRun}`);
+        _logger.debug(`suiteRunId = ${suiteRunId}`);
+        _logger.debug(`suiteId = ${suiteId}`);
+        _logger.debug(`executionId = ${executionId}`);
+
+        if (testsToRun && suiteRunId && suiteId && executionId) {
+          _logger.debug(`Handle Executor event ...`);
+          //await handleExecutorEvent(event, workflowFileName, configParameters);
+          break;
+        } else {
+          _logger.debug(`Continue with discovery / sync ...`);
+        }
       }
     case ActionsEventType.PUSH:
       const oldCommit = await getSyncedCommit();
@@ -226,13 +232,3 @@ const doTestSync = async (discoveryRes: DiscoveryResult, workflowFileName: strin
   await dispatchDiscoveryResults(tr.id, tr.scm_repository.id, discoveryRes);
 }
 
-const hasExecutorParameters = (configParameters: CiParameter[] | undefined): boolean => {
-  if (!configParameters) {
-    return false;
-  }
-
-  const requiredParameters = ['suiteRunId', 'executionId', 'testsToRun'];
-  const foundNames = new Set(configParameters.map(param => param.name));
-
-  return requiredParameters.every(name => foundNames.has(name));
-};

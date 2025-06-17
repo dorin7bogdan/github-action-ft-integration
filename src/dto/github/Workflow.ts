@@ -32,3 +32,10 @@ export default interface Workflow {
   name: string;
   path: string;
 }
+
+export interface WorkflowInputs {
+  executionId: string;
+  suiteId: string;
+  suiteRunId: string;
+  testsToRun: string;
+}
