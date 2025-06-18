@@ -48,6 +48,7 @@ import GitHubClient from './client/githubClient';
 import * as github from '@actions/github';
 import { WorkflowInputs } from './dto/github/Workflow';
 import TestParamsParser from './test/TestParamsParser';
+import { getParamsFromConfig } from './service/parametersService';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -102,7 +103,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const discovery = new Discovery(workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      //const inputParams = await getParametersFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
+      const inputParams = await getParamsFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
       //inputParams && _logger.debug(`Input params: ${JSON.stringify(inputParams)}`);
       //if (inputParams && hasExecutorParameters(inputParams)) {
 
@@ -110,6 +111,10 @@ export const handleCurrentEvent = async (): Promise<void> => {
       const inputsJson = JSON.stringify(inputs, null, 0); // Compress JSON (no indentation)
       _logger.debug(`execution_parameter:: ${inputsJson}`);
       if (inputs) {
+        const defaultTestsToRun = inputParams.find(p => p.name === "testsToRun")?.defaultValue;
+        const defaultSuiteRunId = inputParams.find(p => p.name === "suiteRunId")?.defaultValue;
+        const defaultSuiteId = inputParams.find(p => p.name === "suiteId")?.defaultValue;
+        const defaultExecutionId = inputParams.find(p => p.name === "executionId")?.defaultValue;
         const { executionId, suiteId, suiteRunId, testsToRun } = {
           executionId: inputs.executionId ?? '',
           suiteId: inputs.suiteId ?? '',
@@ -122,7 +127,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
         _logger.debug(`suiteId = ${suiteId}`);
         _logger.debug(`executionId = ${executionId}`);
 
-        if (testsToRun && suiteRunId && suiteId && executionId) {
+        if (testsToRun !== defaultTestsToRun && suiteRunId !== defaultSuiteRunId && suiteId !== defaultSuiteId && executionId !== defaultExecutionId) {
           _logger.debug(`Handle Executor event ...`);
           const result = TestParamsParser.parseTestData(testsToRun);
           _logger.debug("TestData: ", result);

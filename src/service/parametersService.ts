@@ -40,7 +40,7 @@ const LOGGER: Logger = new Logger('parametersService');
 const LOGS_DIR = 'logs';
 const LOG_FILES_PATTERN = '*.txt';
 
-const getParametersFromConfig = async (
+const getParamsFromConfig = async (
   owner: string,
   repo: string,
   workflowFileName: string,
@@ -270,4 +270,4 @@ const parseYamlToCiParameters = (yamlContent: string): CiParameter[] => {
   return ciParameters;
 };
 
-export { getParametersFromConfig, getParametersFromLogs };
+export { getParamsFromConfig, getParametersFromLogs };
