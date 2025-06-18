@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as Diff from 'diff';
 import { Logger } from '../utils/logger';
-import { ToolType } from '../dto/ft/ToolType';
+import ToolType from '../dto/ft/ToolType';
 
 const _logger: Logger = new Logger('ScmChangesWrapper');
 

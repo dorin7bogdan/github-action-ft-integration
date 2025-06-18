@@ -1,4 +1,4 @@
-export class ToolType {
+export default class ToolType {
   private constructor(public readonly toolType: string) { }
 
   public static readonly UFT = new ToolType("uft");

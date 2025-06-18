@@ -45,9 +45,9 @@ import { getOrCreateCiJob } from './service/ciJobService';
 import { dispatchDiscoveryResults } from './discovery/mbtDiscoveryResultDispatcher';
 import path from 'node:path';
 import GitHubClient from './client/githubClient';
-import CiParameter from './dto/octane/events/CiParameter';
 import * as github from '@actions/github';
 import { WorkflowInputs } from './dto/github/Workflow';
+import TestParamsParser from './test/TestParamsParser';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -124,6 +124,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
         if (testsToRun && suiteRunId && suiteId && executionId) {
           _logger.debug(`Handle Executor event ...`);
+          const result = TestParamsParser.parseTestData(testsToRun);
+          _logger.debug("TestData: ", result);
           //await handleExecutorEvent(event, workflowFileName, configParameters);
           break;
         } else {

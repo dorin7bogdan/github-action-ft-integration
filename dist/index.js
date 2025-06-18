@@ -72179,7 +72179,7 @@ const core = __importStar(__nccwpck_require__(7484));
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const UftoTestType_1 = __nccwpck_require__(5720);
-const ToolType_1 = __nccwpck_require__(2744);
+const ToolType_1 = __importDefault(__nccwpck_require__(2744));
 const OctaneStatus_1 = __nccwpck_require__(2828);
 const xmldom_1 = __nccwpck_require__(8351);
 const CFB = __importStar(__nccwpck_require__(908));
@@ -72189,7 +72189,7 @@ const config_1 = __nccwpck_require__(1122);
 const DiscoveryResult_1 = __importDefault(__nccwpck_require__(1305));
 const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('Discovery');
-const _toolType = _config.testingTool === "mbt" ? ToolType_1.ToolType.MBT : ToolType_1.ToolType.UFT;
+const _toolType = _config.testingTool === "mbt" ? ToolType_1.default.MBT : ToolType_1.default.UFT;
 const GUI_TEST_FILE = 'Test.tsp';
 const API_ACTIONS_FILE = "actions.xml"; //api test
 const COMPONENT_INFO = "ComponentInfo";
@@ -72343,10 +72343,10 @@ class Discovery {
             if ((0, utils_1.isTestMainFile)(affectedFileFullPath)) {
                 await this.handleTestChanges(affectedFileWrapper, affectedFileFullPath);
             }
-            else if (_toolType === ToolType_1.ToolType.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
+            else if (_toolType === ToolType_1.default.UFT && this.isDataTableFile(affectedFileWrapper.newPath)) {
                 await this.handleDataTableChanges(affectedFileWrapper, affectedFileFullPath);
             }
-            else if (_toolType === ToolType_1.ToolType.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
+            else if (_toolType === ToolType_1.default.MBT && this.isUftoActionFile(affectedFileWrapper.newPath)) {
                 await this.handleActionChanges(affectedFileWrapper, affectedFileFullPath);
             }
         }
@@ -72441,7 +72441,7 @@ class Discovery {
                 }
             }
         }
-        else if (!(_toolType === ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.API)) {
+        else if (!(_toolType === ToolType_1.default.MBT && testType === UftoTestType_1.UftoTestType.API)) {
             const automTest = await this.createAutomatedTestEx(subDirFullPath, testType);
             this._tests.push(automTest);
         }
@@ -72473,7 +72473,7 @@ class Discovery {
         descr = this.convertToHtmlFormatIfRequired(descr);
         test.description = descr ?? "";
         // discover actions only for mbt toolType and gui tests
-        if (_toolType == ToolType_1.ToolType.MBT && testType === UftoTestType_1.UftoTestType.GUI) {
+        if (_toolType == ToolType_1.default.MBT && testType === UftoTestType_1.UftoTestType.GUI) {
             const actionPathPrefix = this.getActionPathPrefix(test, false);
             const actions = await this.parseActionsAndParameters(doc, actionPathPrefix, test.name, subDirFullPath);
             test.actions = actions;
@@ -72985,6 +72985,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
 const git = __importStar(__nccwpck_require__(3667));
@@ -72992,7 +72995,7 @@ const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const Diff = __importStar(__nccwpck_require__(2823));
 const logger_1 = __nccwpck_require__(7893);
-const ToolType_1 = __nccwpck_require__(2744);
+const ToolType_1 = __importDefault(__nccwpck_require__(2744));
 const _logger = new logger_1.Logger('ScmChangesWrapper');
 class ScmChangesWrapper {
     static async getScmChanges(toolType, dir, oldCommit, newCommit) {
@@ -73069,8 +73072,8 @@ async function wrapScmChanges(toolType, dir, oldCommit, newCommit) {
 async function getDiffEntries(toolType, dir, oldCommit, newCommit) {
     const gitdir = path.join(dir, '.git');
     _logger.debug('Starting getDiffEntries with:', { dir, gitdir, oldCommit, newCommit });
-    const allowedExtensions = toolType === ToolType_1.ToolType.UFT ? /\.(xls|xlsx|tsp|st)$/i : /\.(tsp|st)$/i;
-    const allowedFilenames = toolType === ToolType_1.ToolType.UFT ? /^(ACTIONS\.XML)$/i : /^(ACTIONS\.XML|Resource\.MTR)$/i;
+    const allowedExtensions = toolType === ToolType_1.default.UFT ? /\.(xls|xlsx|tsp|st)$/i : /\.(tsp|st)$/i;
+    const allowedFilenames = toolType === ToolType_1.default.UFT ? /^(ACTIONS\.XML)$/i : /^(ACTIONS\.XML|Resource\.MTR)$/i;
     const results = await git.walk({
         fs,
         dir,
@@ -73885,16 +73888,15 @@ var OctaneStatus;
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.ToolType = void 0;
 class ToolType {
     constructor(toolType) {
         this.toolType = toolType;
     }
     toString() { return this.toolType; }
 }
-exports.ToolType = ToolType;
 ToolType.UFT = new ToolType("uft");
 ToolType.MBT = new ToolType("mbt");
+exports["default"] = ToolType;
 //export type ToolTypeWrapper = typeof ToolType.UFT | typeof ToolType.MBT | typeof ToolType.None;
 
 
@@ -74160,6 +74162,7 @@ const mbtDiscoveryResultDispatcher_1 = __nccwpck_require__(5025);
 const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const githubClient_1 = __importDefault(__nccwpck_require__(1779));
 const github = __importStar(__nccwpck_require__(3228));
+const TestParamsParser_1 = __importDefault(__nccwpck_require__(1119));
 const _config = (0, config_1.getConfig)();
 const _logger = new logger_1.Logger('eventHandler');
 const handleCurrentEvent = async () => {
@@ -74223,6 +74226,8 @@ const handleCurrentEvent = async () => {
                 _logger.debug(`executionId = ${executionId}`);
                 if (testsToRun && suiteRunId && suiteId && executionId) {
                     _logger.debug(`Handle Executor event ...`);
+                    const result = TestParamsParser_1.default.parseTestData(testsToRun);
+                    _logger.debug("TestData: ", result);
                     //await handleExecutorEvent(event, workflowFileName, configParameters);
                     break;
                 }
@@ -74698,6 +74703,103 @@ const getFrameworkId = (framework) => {
     }
     return frameworkId;
 };
+
+
+/***/ }),
+
+/***/ 8202:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+class MbtTestParser {
+    parseTestParam(param) {
+        const testData = {
+            packageSource: param[0],
+            className: param[1],
+            testName: param[2],
+            runId: parseInt(this.calcByExpression(param[3], "^runId=(.+)$", 1), 10),
+            mbtData: param[4] ? this.calcByExpression(param[4], "^mbtData=(.+)$", 1) : undefined
+        };
+        return testData;
+    }
+    calcByExpression(param, regex, groupNum) {
+        const rxTemplate = new RegExp(regex);
+        const match = param.match(rxTemplate);
+        if (match) {
+            return match[groupNum];
+        }
+        return param;
+    }
+}
+exports["default"] = MbtTestParser;
+
+
+/***/ }),
+
+/***/ 1119:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const ToolType_1 = __importDefault(__nccwpck_require__(2744));
+const TestParserFactory_1 = __importDefault(__nccwpck_require__(8368));
+const logger_1 = __nccwpck_require__(7893);
+const _logger = new logger_1.Logger("TestParamsParser");
+class TestParamsParser {
+    static parseTestData(testData, framework = ToolType_1.default.MBT) {
+        _logger.debug(`Parsing test data: ${testData} with framework: ${framework}`);
+        const strTestParam = this.calcByExpression(testData, "^v1:(.+)$", 1);
+        const arrTestParam = strTestParam.split(";");
+        const testDataMap = new Map();
+        arrTestParam.forEach(param => {
+            try {
+                const testParts = param.split("\\|");
+                const parsedTestData = TestParserFactory_1.default.getParser(framework).parseTestParam(testParts);
+                testDataMap.set(parsedTestData.runId, parsedTestData);
+            }
+            catch (e) {
+                throw new Error(`Failed to save string: ${e.message}`);
+            }
+        });
+        return testDataMap;
+    }
+    static calcByExpression(param, regex, groupNum) {
+        const rxTemplate = new RegExp(regex);
+        const match = param.match(rxTemplate);
+        if (match) {
+            return match[groupNum];
+        }
+        return param;
+    }
+}
+exports["default"] = TestParamsParser;
+
+
+/***/ }),
+
+/***/ 8368:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const MbtTestParser_1 = __importDefault(__nccwpck_require__(8202));
+const ToolType_1 = __importDefault(__nccwpck_require__(2744));
+class TestParserFactory {
+    static getParser(framework = ToolType_1.default.MBT) {
+        return new MbtTestParser_1.default();
+    }
+}
+exports["default"] = TestParserFactory;
 
 
 /***/ }),

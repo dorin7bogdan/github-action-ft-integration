@@ -4,7 +4,7 @@ import * as core from '@actions/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import { UftoTestType } from '../dto/ft/UftoTestType';
-import { ToolType } from '../dto/ft/ToolType';
+import ToolType from '../dto/ft/ToolType';
 import AutomatedTest from '../dto/ft/AutomatedTest';
 import ScmResourceFile from '../dto/ft/ScmResourceFile';
 import { OctaneStatus } from '../dto/ft/OctaneStatus';
