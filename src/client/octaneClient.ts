@@ -56,6 +56,8 @@ const CI_SERVER = 'ci_server';
 const SCM_REPOSITORY = 'scm_repository';
 const TESTING_TOOL_TYPE = 'testing_tool_type';
 const INSTANCE_ID = 'instance_id';
+const _headers = { HPECLIENTTYPE: 'HPE_CI_CLIENT' };
+
 export default class OctaneClient {
   private static _logger: Logger = new Logger('octaneClient');
   private static GITHUB_ACTIONS = 'github_actions';
@@ -67,7 +69,7 @@ export default class OctaneClient {
     workspace: this._config.octaneWorkspace,
     user: this._config.octaneClientId,
     password: this._config.octaneClientSecret,
-    headers: { 'HPECLIENTTYPE': 'HPE_CI_CLIENT' }
+    headers: _headers
   });
 
   private static ANALYTICS_WORKSPACE_CI_INTERNAL_API_URL = `/internal-api/shared_spaces/${this._config.octaneSharedSpace}/workspaces/${this._config.octaneWorkspace}/analytics/ci`;
@@ -191,8 +193,7 @@ export default class OctaneClient {
     };
     this._logger.debug(`Creating test_runner: ${JSON.stringify(body) }...`);
 
-    const headers = { HPECLIENTTYPE: 'HPE_CI_CLIENT' }; //, "ALM-OCTANE-PRIVATE": true, "ALM-OCTANE-TECH-PREVIEW": true };
-    const entry = await this._octane.executeCustomRequest(`${this.CI_INTERNAL_API_URL}/je/test_runners/uft`, Octane.operationTypes.create, body, headers);
+    const entry = await this._octane.executeCustomRequest(`${this.CI_INTERNAL_API_URL}/je/test_runners/uft`, Octane.operationTypes.create, body);
 
     if (!entry || entry.total_count === 0) {
       throw Error('Could not create the test runner entity.');
@@ -211,17 +212,14 @@ export default class OctaneClient {
 
   public static getSharedSpaceName = async (sharedSpaceId: number): Promise<string> => {
     this._logger.debug(`Getting the name of the shared space with {id='${sharedSpaceId}'}...`);
-    const res = await this._octane.executeCustomRequest(`/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`, Octane.operationTypes.get)
+    const res = await this._octane.executeCustomRequest(`/api/shared_spaces?fields=name&query="id EQ ${sharedSpaceId}"`, Octane.operationTypes.get);
     return res.data[0].name;
   };
 
   public static getOctaneVersion = async (): Promise<string> => {
-    const requestHeaders = { 'ALM-OCTANE-TECH-PREVIEW': true };
     const response = await this._octane.executeCustomRequest(
       this.ANALYTICS_CI_INTERNAL_API_URL + '/servers/connectivity/status',
-      Octane.operationTypes.get,
-      undefined,
-      requestHeaders
+      Octane.operationTypes.get
     );
 
     return response.octaneVersion;
@@ -426,39 +424,35 @@ export default class OctaneClient {
     );
   };
 
-  public static getTestRunnerVersion = async (executorId: number): Promise<string> => {
-    const headers = { HPECLIENTTYPE: 'HPE_CI_CLIENT' }; //, "ALM-OCTANE-PRIVATE": true, "ALM-OCTANE-TECH-PREVIEW": true };
-    const e = await this._octane.executeCustomRequest(`${this.CI_API_URL}/executors/${executorId}/version`, Octane.operationTypes.get, undefined, headers);
-    if (!e || e.total_count === 0 || e.data.length === 0) {
-      throw Error('Could not get the test runner version.');
+  public static getTestSuiteData = async (suiteRunid: number): Promise<string> => {
+    this._logger.debug(`Getting test suite data for suiteRunId: ${suiteRunid} ...`);
+    const res = await this._octane.executeCustomRequest(`${this.CI_API_URL}/suite_runs/${suiteRunid}/get_suite_data`, Octane.operationTypes.get);
+    if (!res || res.total_count === 0 || res.data.length === 0) {
+      this._logger.debug(`No test suite data found for suiteRunId: ${suiteRunid}.`);
     }
-    return e.data[0];
+    this._logger.debug(JSON.stringify(res.data[0]));
+    return res.data[0];
   }
 
-  public static getCiJob = async (
-    ciId: string,
-    ciServer: CiServer
-  ): Promise<CiJob | undefined> => {
-    this._logger.debug(
-      `Getting job with {ci_id='${ciId}, ci_server.id='${ciServer.id}'}...`
-    );
+  public static getCiJob = async (ciId: string, ciServer: CiServer): Promise<CiJob | undefined> => {
+    this._logger.debug(`Getting job with {ci_id='${ciId}, ci_server.id='${ciServer.id}'}...`);
 
     const jobQuery = Query.field('ci_id')
       .equal(escapeQueryVal(ciId))
       .and(Query.field('ci_server').equal(Query.field('id').equal(ciServer.id)))
       .build();
 
-    const ciJobs = await this._octane
+    const res = await this._octane
       .get('ci_jobs')
       .fields('id,ci_id,name,ci_server{name,instance_id}')
       .query(jobQuery)
       .execute();
 
-    if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
+    if (!res || res.total_count === 0 || res.data.length === 0) {
       return undefined;
     }
 
-    return ciJobs.data[0];
+    return res.data[0];
   };
 
   public static createCiJob = async (ciJob: CiJobBody): Promise<CiJob> => {
@@ -475,13 +469,13 @@ export default class OctaneClient {
       branch: ciJob.branchName
     };
 
-    const ciJobs = await this._octane.create('ci_jobs', ciJobToCreate).fields('id,ci_id,name,ci_server{name,instance_id}').execute();
+    const res = await this._octane.create('ci_jobs', ciJobToCreate).fields('id,ci_id,name,ci_server{name,instance_id}').execute();
 
-    if (!ciJobs || ciJobs.total_count === 0 || ciJobs.data.length === 0) {
+    if (!res || res.total_count === 0 || res.data.length === 0) {
       throw Error('Could not create the CI job entity.');
     }
 
-    return ciJobs.data[0];
+    return res.data[0];
   };
 
   public static fetchEntities = async <T>(collectionName: string, query: Query = Query.NULL, fields: string[] = []): Promise<T[]> => {

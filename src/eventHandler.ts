@@ -49,6 +49,7 @@ import * as github from '@actions/github';
 import { WorkflowInputs } from './dto/github/Workflow';
 import TestParamsParser from './test/TestParamsParser';
 import { getParamsFromConfig } from './service/parametersService';
+import CiParameter from './dto/octane/events/CiParameter';
 
 const _config = getConfig();
 const _logger: Logger = new Logger('eventHandler');
@@ -76,7 +77,8 @@ export const handleCurrentEvent = async (): Promise<void> => {
   }
 
   //const workflowName = event.workflow?.name;
-  const workflowRunId = event.workflow_run?.id;
+  const workflowRunId = event.workflow_run?.id ?? 0;
+  const workflowRunNum = event.workflow_run?.run_number ?? 0;
   const ref: string | undefined = event.ref;
   let branchName: string | undefined;
 
@@ -103,18 +105,11 @@ export const handleCurrentEvent = async (): Promise<void> => {
   const discovery = new Discovery(workDir);
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
-      const inputParams = await getParamsFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
-      //inputParams && _logger.debug(`Input params: ${JSON.stringify(inputParams)}`);
-      //if (inputParams && hasExecutorParameters(inputParams)) {
-
-      const inputs = github.context.payload.inputs ?? {};
-      const inputsJson = JSON.stringify(inputs, null, 0); // Compress JSON (no indentation)
-      _logger.debug(`execution_parameter:: ${inputsJson}`);
-      if (inputs) {
-        const defaultTestsToRun = inputParams.find(p => p.name === "testsToRun")?.defaultValue;
-        const defaultSuiteRunId = inputParams.find(p => p.name === "suiteRunId")?.defaultValue;
-        const defaultSuiteId = inputParams.find(p => p.name === "suiteId")?.defaultValue;
-        const defaultExecutionId = inputParams.find(p => p.name === "executionId")?.defaultValue;
+      const ciParams = await getParamsFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
+      const inputs = github.context.payload.inputs;
+      _logger.debug(`Input params:: ${JSON.stringify(inputs, null, 0) }`);
+      const keys = ["testsToRun", "suiteRunId", "suiteId", "executionId"];
+      if (inputs && hasExecutorKeys(keys, ciParams)) {
         const { executionId, suiteId, suiteRunId, testsToRun } = {
           executionId: inputs.executionId ?? '',
           suiteId: inputs.suiteId ?? '',
@@ -122,16 +117,14 @@ export const handleCurrentEvent = async (): Promise<void> => {
           testsToRun: inputs.testsToRun ?? ''
         } as WorkflowInputs;
 
-        _logger.debug(`testsToRun = ${testsToRun}`);
-        _logger.debug(`suiteRunId = ${suiteRunId}`);
-        _logger.debug(`suiteId = ${suiteId}`);
-        _logger.debug(`executionId = ${executionId}`);
-
-        if (testsToRun !== defaultTestsToRun && suiteRunId !== defaultSuiteRunId && suiteId !== defaultSuiteId && executionId !== defaultExecutionId) {
+        const defaults: Record<string, string> = Object.fromEntries(
+          ciParams.map(param => [param.name, param.defaultValue ?? ""])
+        );
+        if ([testsToRun, suiteRunId, suiteId, executionId].every((val, i) => val && val !== defaults[keys[i]])) {
           _logger.debug(`Handle Executor event ...`);
           const result = TestParamsParser.parseTestData(testsToRun);
           _logger.debug("TestData: ", result);
-          //await handleExecutorEvent(event, workflowFileName, configParameters);
+          await handleExecutorEvent(parseInt(suiteRunId));
           break;
         } else {
           _logger.debug(`Continue with discovery / sync ...`);
@@ -217,6 +210,11 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
 };
 
+const handleExecutorEvent = async (suiteRunId: number): Promise<void> => {
+  const tsData = await OctaneClient.getTestSuiteData(suiteRunId);
+  //TODO
+}
+
 const isMinSyncIntervalElapsed = async (minSyncInterval: number) => {
   const lastSyncedTimestamp = await getSyncedTimestamp();
   const currentTimestamp = new Date().getTime();
@@ -239,3 +237,10 @@ const doTestSync = async (discoveryRes: DiscoveryResult, workflowFileName: strin
   await dispatchDiscoveryResults(tr.id, tr.scm_repository.id, discoveryRes);
 }
 
+const hasExecutorKeys = (keys: string[], params: CiParameter[]): boolean => {
+  if (params.length === 0) {
+    return false;
+  }
+  const foundNames = new Set(params.map(param => param.name));
+  return keys.every(name => foundNames.has(name));
+};

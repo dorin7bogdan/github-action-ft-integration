@@ -8,12 +8,12 @@ export default class TestParamsParser {
   public static parseTestData(testData: string, framework: ToolType = ToolType.MBT): Map<number, TestData> {
     _logger.debug(`Parsing test data: ${testData} with framework: ${framework}`);
     const strTestParam = this.calcByExpression(testData, "^v1:(.+)$", 1);
-    const arrTestParam = strTestParam.split(";");
+    const arrTestParam = strTestParam.split(';');
     const testDataMap = new Map<number, TestData>();
 
     arrTestParam.forEach(param => {
       try {
-        const testParts = param.split("|");
+        const testParts = param.split('|');
         const parsedTestData = TestParserFactory.getParser(framework).parseTestParam(testParts);
         testDataMap.set(parsedTestData.runId, parsedTestData);
       } catch (e) {
