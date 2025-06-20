@@ -15,5 +15,11 @@
     "path": ".github/workflows/gha-ft-integration.yml",
     "id": 7890,
     "name": "My-Custom-Workflow"
+  },
+  "inputs": {
+    "executionId": "1012",
+    "suiteId": "1107",
+    "suiteRunId": "1012",
+    "testsToRun": "v1:||quick_pass_00001|runId=1013|mbtData=mbtDataNotIncluded;||quick_fail_00001|runId=1014|mbtData=mbtDataNotIncluded"
   }
 }

@@ -424,14 +424,11 @@ export default class OctaneClient {
     );
   };
 
-  public static getTestSuiteData = async (suiteRunid: number): Promise<string> => {
+  public static getTestSuiteData = async (suiteRunid: number): Promise<Map<number, string>> => {
     this._logger.debug(`Getting test suite data for suiteRunId: ${suiteRunid} ...`);
     const res = await this._octane.executeCustomRequest(`${this.CI_API_URL}/suite_runs/${suiteRunid}/get_suite_data`, Octane.operationTypes.get);
-    if (!res || res.total_count === 0 || res.data.length === 0) {
-      this._logger.debug(`No test suite data found for suiteRunId: ${suiteRunid}.`);
-    }
-    this._logger.debug(JSON.stringify(res.data[0]));
-    return res.data[0];
+    this._logger.debug(JSON.stringify(res));
+    return res;
   }
 
   public static getCiJob = async (ciId: string, ciServer: CiServer): Promise<CiJob | undefined> => {

@@ -45,7 +45,6 @@ import { getOrCreateCiJob } from './service/ciJobService';
 import { dispatchDiscoveryResults } from './discovery/mbtDiscoveryResultDispatcher';
 import path from 'node:path';
 import GitHubClient from './client/githubClient';
-import * as github from '@actions/github';
 import { WorkflowInputs } from './dto/github/Workflow';
 import TestParamsParser from './test/TestParamsParser';
 import { getParamsFromConfig } from './service/parametersService';
@@ -106,7 +105,7 @@ export const handleCurrentEvent = async (): Promise<void> => {
   switch (eventType) {
     case ActionsEventType.WORKFLOW_RUN:
       const ciParams = await getParamsFromConfig(_config.owner, _config.repo, workflowFileName, branchName);
-      const inputs = github.context.payload.inputs;
+      const inputs = context.payload.inputs;
       _logger.debug(`Input params:: ${JSON.stringify(inputs, null, 0) }`);
       const keys = ["testsToRun", "suiteRunId", "suiteId", "executionId"];
       if (inputs && hasExecutorKeys(keys, ciParams)) {
@@ -212,6 +211,16 @@ export const handleCurrentEvent = async (): Promise<void> => {
 
 const handleExecutorEvent = async (suiteRunId: number): Promise<void> => {
   const tsData = await OctaneClient.getTestSuiteData(suiteRunId);
+  const decodedData: Map<number, string> = new Map();
+  tsData.forEach((base64Text, key) => {
+    try {
+      const text = Buffer.from(base64Text, "base64").toString("utf8");
+      decodedData.set(key, text);
+    } catch (err) {
+      console.error(`Failed to decode Base64 string for key ${key}:`, base64Text, err);
+      throw err;
+    }
+  });
   //TODO
 }
 
