@@ -24,8 +24,7 @@ export async function getMBTData(file: string): Promise<RunResultsSteps[]> {
   const reportNode = r.results?.reportNode as ReportNode;
 
   if (!reportNode) {
-    console.error(`Failed to find UFT result data file for file ${file}`);
-    return [];
+    throw new Error(`Failed to find UFT result data for file ${file}`);
   }
 
   const iterationRptNodes: ReportNode[] = [];

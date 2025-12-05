@@ -36,7 +36,7 @@ export class CaseResult {
   public toXML(indent: number = 2): string {
     const tabs = "\t".repeat(indent);
     let xml = `${tabs}<case>\n`;
-    xml += `${tabs}\t<runId>${this.runId}</duration>\n`;
+    xml += `${tabs}\t<runId>${this.runId}</runId>\n`;
     xml += `${tabs}\t<duration>${this.duration.toFixed(5)}</duration>\n`;
     xml += `${tabs}\t<className>${escapeXML(this.className)}</className>\n`;
     xml += `${tabs}\t<testName>${escapeXML(this.testName)}</testName>\n`;

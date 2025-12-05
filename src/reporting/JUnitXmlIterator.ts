@@ -57,7 +57,12 @@ export class JUnitXmlIterator {
     let externalURL = '';
     if (this.runResultsFilesMap.has(runId)) {
       const runResXmlFilePath = this.runResultsFilesMap.get(runId);
-      this.resultData = await getMBTData(runResXmlFilePath!) || [];
+      try {
+        this.resultData = await getMBTData(runResXmlFilePath!) || [];
+      } catch (e) {
+        logger.error(`getMBTData: ${(e as Error).message}`);
+        logger.error(`processTestCase: Error parsing run results file: [${runResXmlFilePath}]`);
+      }
       const repoUrl = config.repoUrl.replace(/\.git$/, '');
       if (this.buildInfo.runId2artifactIdMap?.has(runId)) {
         externalURL = `${repoUrl}/actions/runs/${this.buildInfo.buildId}/artifacts/${this.buildInfo.runId2artifactIdMap.get(runId)}`;
